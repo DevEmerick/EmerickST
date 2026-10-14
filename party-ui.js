@@ -1,4 +1,4 @@
-// EmerickST Party v6.2.25 — lider/membro local, confirmacao e posicao automaticas.
+// EmerickST Party v6.2.29 — lider/membro local, confirmacao e posicao automaticas.
 // Mundo MAIN. Nao executa hunts, nao altera WebSocket nem faz movimentos.
 (() => {
   if (window.__emerickPartyInit) return;
@@ -190,6 +190,11 @@
         ? {x,y} : null;
     };
     const visible = element => Boolean(element?.isConnected && element.getClientRects().length);
+    // Apenas sinais semanticos explicitos do jogo, nunca a cor do quadrado
+    // (que pode representar hover e nao uma posicao aceita).
+    const nativeSelectedTile = element => Boolean(element?.matches?.(
+      '[aria-selected="true"], [aria-pressed="true"], [data-selected="true"], [data-state="selected"]'
+    ));
     // A mesma fonte nativa de nome da hunt utilizada no monitor do EmerickST.
     function nativeHuntName() {
       for (const p of document.querySelectorAll('p')) {
@@ -211,6 +216,7 @@
     const positioning = {
       hunt:'', hadGame:false, noGameSince:0, opened:false,
       grid:null, selectedThisGrid:false, applied:false, noGridSince:0,
+      openAttempts:0, lastOpenAt:0, positionAcknowledged:false,
       message:'', lastBroadcast:''
     };
     function setPositionMessage(message) {
@@ -218,6 +224,15 @@
         positioning.message = message;
         text('[data-party-pos-notice]',message);
       }
+    }
+    function resetPositioning() {
+      positioning.hunt=''; positioning.hadGame=false;
+      positioning.noGameSince=0; positioning.opened=false;
+      positioning.grid=null; positioning.selectedThisGrid=false;
+      positioning.applied=false; positioning.noGridSince=0;
+      positioning.openAttempts=0; positioning.lastOpenAt=0;
+      positioning.positionAcknowledged=false;
+      setGate();
     }
     function saveManualTile(tile) {
       const hunt = huntName();
@@ -244,8 +259,11 @@
       markMoved();
       positioning.opened = true;
       positioning.selectedThisGrid = true; positioning.applied=true;
-      setGate(); // libera o Lure apenas depois do clique manual.
-      setPositionMessage(`Posição ${pos.x},${pos.y} salva para ${hunt}.`);
+      positioning.positionAcknowledged = nativeSelectedTile(tile);
+      setGate(); // mantem a sequencia atual, sem travar Hunt/Lure.
+      setPositionMessage(positioning.positionAcknowledged
+        ? `Posição ${pos.x},${pos.y} indicada como selecionada pela interface.`
+        : `Posição ${pos.x},${pos.y} salva após o clique; servidor não verificado.`);
       render();
     }
     // Somente o clique real do usuario cria ou altera o registro.
@@ -272,35 +290,42 @@
     }
     function pollPositioning() {
       if (!state.enabled || !valid()) return;
-      // Em Party, o posicionamento tem prioridade sobre o Lure.
-      // O monitor da Hunt aguarda positioning.applied antes de abrir o Lure.
-      // Nunca alterar posicao durante a confirmacao de prontidao.
-      if (nativeDialog()) return;
+      // Antes de consultar huntName(), detectar que a hunt anterior terminou.
+      // No membro, huntName() fica vazio fora da caçada; no código antigo
+      // isso impedia resetar "applied" ao repetir a MESMA hunt.
+      const squares = [...document.querySelectorAll(gridSelector)].filter(visible);
+      const inGame = partyInHunt() || squares.length >= 3;
+      if (nativeDialog()) {
+        // Um novo modal de prontidão indica nova entrada, inclusive se o
+        // nome da hunt for idêntico ao da anterior.
+        if (positioning.hadGame) resetPositioning();
+        return;
+      }
+      if (!inGame) {
+        if (!positioning.noGameSince) positioning.noGameSince=Date.now();
+        if (positioning.hadGame && Date.now()-positioning.noGameSince > 2500)
+          resetPositioning();
+        return;
+      }
+      positioning.noGameSince=0;
+      positioning.hadGame=true;
       const hunt = huntName();
       const vocationName = getVocation(name.value);
       if (!hunt || !VOCATIONS.has(vocationName)) {
         setPositionMessage(!VOCATIONS.has(vocationName)
           ? 'Selecione sua vocação em Configurações.'
-          : 'Aguardando a hunt definida pelo líder.');
+          : 'Aguardando a identificação da hunt pelo Stonegy.');
         return;
       }
       const key = positionId(hunt);
       if (positioning.hunt !== key) {
         positioning.hunt=key; positioning.opened=false;
-        positioning.grid=null; positioning.selectedThisGrid=false; positioning.applied=false;
+        positioning.grid=null; positioning.selectedThisGrid=false;
+        positioning.applied=false; positioning.noGridSince=0;
+        positioning.openAttempts=0; positioning.lastOpenAt=0;
+        positioning.positionAcknowledged=false;
+        setGate();
       }
-      const squares = [...document.querySelectorAll(gridSelector)].filter(visible);
-      const inGame = partyInHunt() || squares.length >= 3;
-      if (!inGame) {
-        if (!positioning.noGameSince) positioning.noGameSince=Date.now();
-        if (Date.now()-positioning.noGameSince > 2500 && positioning.hadGame) {
-          positioning.opened=false; positioning.grid=null;
-          positioning.selectedThisGrid=false; positioning.applied=false; positioning.hadGame=false;
-        }
-        return;
-      }
-      positioning.noGameSince=0;
-      positioning.hadGame=true;
       const saved = getPosition(hunt);
       if (squares.length >= 3) {
         const grid = squares[0].parentElement;
@@ -309,33 +334,54 @@
         }
         positioning.noGridSince=0;
         if (!saved) {
-          setPositionMessage('Escolha um quadrado amarelo; o bot salvará sua posição.');
+          setPositionMessage('Escolha um quadrado amarelo; a posição será salva.');
           return;
         }
-        if (positioning.selectedThisGrid || positioning.applied) return;
+        // A interface pode atualizar o atributo um instante depois do clique.
+        // Este é um sinal visual explicito, NÃO uma prova do servidor.
         const matching = squares.find(tile => {
           const p=parseTile(tile);
           return p && p.x === saved.x && p.y === saved.y && !tile.disabled;
         });
+        if (positioning.applied) {
+          if (!positioning.positionAcknowledged && nativeSelectedTile(matching)) {
+            positioning.positionAcknowledged=true;
+            setPositionMessage(`Posição ${saved.x},${saved.y} indicada como selecionada pela interface.`);
+          }
+          return;
+        }
+        if (positioning.selectedThisGrid) return;
         if (!matching) {
           setPositionMessage(`Posição ${saved.x},${saved.y} indisponível. Escolha manualmente.`);
           positioning.selectedThisGrid=true;
+          return;
+        }
+        if (nativeSelectedTile(matching)) {
+          positioning.selectedThisGrid=true;
+          positioning.applied=true;
+          positioning.positionAcknowledged=true;
+          setGate();
+          setPositionMessage(`Posição ${saved.x},${saved.y} já indicada pelo jogo.`);
           return;
         }
         if (cooldownLeft() > 0) {
           setPositionMessage(`Aguardando o intervalo de posição (${Math.ceil(cooldownLeft()/1000)}s).`);
           return;
         }
-        positioning.selectedThisGrid=true; // nunca repete na mesma hunt
+        positioning.selectedThisGrid=true; // sem cliques repetidos na mesma entrada
         positioning.opened=true;
         try {
           matching.click();
           positioning.applied=true;
-          setGate(); // libera Lure somente depois de clicar no quadrado.
+          positioning.positionAcknowledged=nativeSelectedTile(matching);
+          setGate(); // ordem Hunt > posicao > Lure > Bestiary inalterada
           markMoved();
-          setPositionMessage(`Posição ${saved.x},${saved.y} aplicada automaticamente.`);
+          setPositionMessage(positioning.positionAcknowledged
+            ? `Posição ${saved.x},${saved.y} indicada como selecionada pela interface.`
+            : `Seleção ${saved.x},${saved.y} enviada; confirmação do servidor indisponível.`);
         } catch (error) {
-          setPositionMessage('Falha ao selecionar a posição: ' + String(error?.message || error).slice(0,80));
+          positioning.selectedThisGrid=false;
+          setPositionMessage('Falha ao selecionar posição: '+String(error?.message||error).slice(0,80));
         }
         return;
       }
@@ -347,7 +393,14 @@
         setPositionMessage('Primeira hunt: abra Posicionamento e selecione um quadrado.');
         return;
       }
-      if (positioning.opened || positioning.applied) return;
+      if (positioning.applied) return;
+      // Se o botao foi clicado mas o React nao abriu a grade,
+      // repetir NO MAXIMO uma vez, com intervalo de 5 segundos.
+      if (positioning.opened && Date.now()-positioning.lastOpenAt < 5000) return;
+      if (positioning.openAttempts >= 2) {
+        setPositionMessage('A grade não abriu após duas tentativas. Abra Posicionamento manualmente.');
+        return;
+      }
       if (cooldownLeft() > 0) {
         setPositionMessage(`Próxima posição liberada em ${Math.ceil(cooldownLeft()/1000)}s.`);
         return;
@@ -355,6 +408,8 @@
       const open = positionOpenButton();
       if (!open) return;
       positioning.opened=true;
+      positioning.openAttempts++;
+      positioning.lastOpenAt=Date.now();
       try {
         open.click();
         setPositionMessage(`Abrindo grade para posição ${saved.x},${saved.y}.`);
