@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Stonegy - Analisador de Combate",
+  "version": "6.2.21",
+  "description": "Analisador de combate, DPS, boxes e automações para Stonegy Online.",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://stonegy-online.com/*",
+        "https://*.stonegy-online.com/*"
+      ],
+      "js": [
+        "party-ui.js",
+        "stonegy.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://stonegy-online.com/*",
+        "https://*.stonegy-online.com/*"
+      ],
+      "js": [
+        "party-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "background": {
+    "service_worker": "party-background.js"
+  },
+  "incognito": "spanning"
+}

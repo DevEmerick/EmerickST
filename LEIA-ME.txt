@@ -1,0 +1,25 @@
+EmerickST — versão 6.2.6 (Nocturne Dark)
+
+Visual atualizado: grafite profundo, violeta suave e azul gelo.
+Removida a identidade amarelo/dourado do painel e dos marcadores de inventário.
+Bot, combate, hunt, treinamento, vendas, proteção, captura e configurações permanecem com a lógica da v6.2.5.
+
+COMO ATUALIZAR (SEM PERDER CONFIGURAÇÕES)
+1. Faça uma cópia de segurança da pasta da extensão atual (v6.2.5).
+2. Extraia esta versão para a MESMA pasta usada no Chrome; substitua os 3 arquivos antigos.
+   Importante: preservar a pasta e a extensão atual no Chrome ajuda a manter o mesmo ID.
+3. Abra chrome://extensions e clique em "Recarregar" no EmerickST.
+4. Recarregue a página https://stonegy-online.com/.
+5. Confira o estado do bot ANTES de iniciar ações automáticas.
+6. Teste Dano, Recebido, Origem, Boxes e Hunt, além do modo bolinha, botões e lista de itens protegidos.
+
+INSTALAÇÃO NOVA
+1. Extraia o ZIP.
+2. Abra chrome://extensions e ative o modo do desenvolvedor.
+3. Escolha "Carregar sem compactação" e a pasta "EmerickST-v6.2.6" com manifest.json.
+
+NOTAS
+- Não foram adicionadas permissões nem funcionalidades.
+- O script usa Manifest V3, MAIN world, document_start, conforme a versão anterior.
+- Testes estáticos passam; execução dentro do jogo deve ser validada pelo usuário.
+- Versão anterior para retorno: EmerickST v6.2.5.
