@@ -1,4 +1,4 @@
-// EmerickST Party v6.2.23 — lider/membro local, confirmacao e posicao automaticas.
+// EmerickST Party v6.2.25 — lider/membro local, confirmacao e posicao automaticas.
 // Mundo MAIN. Nao executa hunts, nao altera WebSocket nem faz movimentos.
 (() => {
   if (window.__emerickPartyInit) return;
@@ -102,7 +102,7 @@
     const vocation = el('[data-party-vocation]');
     const state = {
       enabled:false, connected:false, wantJoin:false, joined:false,
-      me:'', members:[], error:'', notice:'', leaderHunt:'', cycleStarted:false, phase:''
+      me:'', members:[], error:'', notice:'', leaderHunt:'', cycleStarted:false, phase:'', lastKickAt:0
     };
     const partyLure = el('[data-party-lure]');
     const LURE_MAP_KEY = 'emerickst:party:lure-by-hunt:v1';
@@ -244,6 +244,7 @@
       markMoved();
       positioning.opened = true;
       positioning.selectedThisGrid = true; positioning.applied=true;
+      setGate(); // libera o Lure apenas depois do clique manual.
       setPositionMessage(`Posição ${pos.x},${pos.y} salva para ${hunt}.`);
       render();
     }
@@ -271,6 +272,10 @@
     }
     function pollPositioning() {
       if (!state.enabled || !valid()) return;
+      // Em Party, o posicionamento tem prioridade sobre o Lure.
+      // O monitor da Hunt aguarda positioning.applied antes de abrir o Lure.
+      // Nunca alterar posicao durante a confirmacao de prontidao.
+      if (nativeDialog()) return;
       const hunt = huntName();
       const vocationName = getVocation(name.value);
       if (!hunt || !VOCATIONS.has(vocationName)) {
@@ -321,10 +326,12 @@
           setPositionMessage(`Aguardando o intervalo de posição (${Math.ceil(cooldownLeft()/1000)}s).`);
           return;
         }
-        positioning.selectedThisGrid=true; positioning.applied=true; // nunca repete na mesma hunt
+        positioning.selectedThisGrid=true; // nunca repete na mesma hunt
         positioning.opened=true;
         try {
           matching.click();
+          positioning.applied=true;
+          setGate(); // libera Lure somente depois de clicar no quadrado.
           markMoved();
           setPositionMessage(`Posição ${saved.x},${saved.y} aplicada automaticamente.`);
         } catch (error) {
@@ -362,9 +369,14 @@
       const saved = JSON.parse(sessionStorage.getItem(savedKey) || '{}');
       name.value = saved.name || '';
       role.value = saved.role === 'member' ? 'member' : 'leader';
+      // Recupera Party apos o proprio jogo recarregar por perda de conexao.
+      state.enabled = saved.active === true;
     } catch (_) {}
     vocation.value = getVocation(name.value);
-    restoreSoloHunt();
+    // Identidade desta aba para Dashboard de dano individual.
+    window.__emerickLocalCharacterName = name.value.trim();
+    // So restaura o snapshot Solo se a Party estava desligada.
+    if (!state.enabled) restoreSoloHunt();
     partyHunt = loadPartyHunt();
     partyHuntInput.value = partyHunt;
     const preferredLure = () => {
@@ -374,8 +386,9 @@
     partyLure.value = preferredLure();
     el('[data-party-setup]').open = !valid();
     const save = () => {
+      window.__emerickLocalCharacterName=name.value.trim();
       try { sessionStorage.setItem(savedKey, JSON.stringify({
-        name:name.value.trim(), role:role.value
+        name:name.value.trim(), role:role.value, active:state.enabled
       })); } catch (_) {}
     };
     const pauseHuntBot = () => {
@@ -389,8 +402,13 @@
       if (bot.getFlow?.()) bot.clearFlow?.();
     };
     const setGate = () => {
+      const game = state.enabled && partyInHunt();
+      const waitingReady = Boolean(game && nativeDialog());
       window.__emerickPartyGate = {
-        enabled:state.enabled, isLeader:role.value === 'leader'
+        enabled:state.enabled,
+        isLeader:role.value === 'leader',
+        readyPending:waitingReady,
+        positionPending:Boolean(game && !positioning.applied),
       };
       return state.enabled && role.value === 'leader';
     };
@@ -400,6 +418,7 @@
       state.phase='';state.error='';
       restoreSoloHunt();
       setGate();
+      save(); // se o jogo recarregar depois de parar, nao reativar a Party
     };
     function tickAutomation() {
       setGate();
@@ -422,16 +441,33 @@
         bot.config.lureModo = partyLure.value === 'off' ? 'off' : 'max';
         bot.saveConfig?.();
         state.cycleStarted=true;
+        state.lastKickAt=Date.now();
         state.phase='Líder executando venda, proteções e hunt.';
         if (partyInHunt()) {
+          // Ja esta cacando: nao reinicia venda nem cria outra Hunt.
           bot.config.botAtivo=true;
           bot.saveConfig?.();
         } else {
+          // O mesmo ponto de entrada do modo Solo, sem atalhos.
           try { bot.startReturn(); }
           catch(e) {state.cycleStarted=false;state.error=String(e?.message || e);}
         }
       } else {
-        state.phase=partyInHunt() ? 'Hunt em andamento.' : 'Ciclo de venda/hunt ativo.';
+        const hunting=partyInHunt();
+        const flow=bot.getFlow?.();
+        const busy=bot.isAsyncRunning?.() || bot.isTrainingRunning?.();
+        // Monitor primario do Solo continua responsavel por recomecar ciclos.
+        // Recuperacao limitada caso a ativacao inicial tenha falhado.
+        if (!hunting && !flow && !busy && Date.now()-state.lastKickAt>20000 &&
+            !nativeDialog() && !window.__emerickBestiaryBusy) {
+          state.lastKickAt=Date.now();
+          state.phase='Retomando o ciclo do líder...';
+          bot.startReturn();
+        } else {
+          state.phase=hunting ? 'Hunt em andamento.' :
+            flow ? 'Fluxo: '+flow.etapa.replaceAll('_',' ').toLowerCase() :
+            'Aguardando próxima etapa da caça.';
+        }
       }
     }
     // Identifica apenas o modal nativo de prontidao, jamais botoes do EmerickST.
@@ -641,6 +677,7 @@
     const settings=shadow.querySelector('[data-settings-view]');
     if (settings) observer.observe(settings,{attributes:true,attributeFilter:['hidden']});
     tabs.addEventListener('click',()=>queueMicrotask(sync));
+    setGate();
     sync();render();
   };
 })();

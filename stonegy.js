@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.23
+// // @version      6.2.28
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -47,6 +47,7 @@
     AGUARDANDO_PAINEL: "painel",
     AGUARDANDO_VERIFICAR: "verificar",
     AGUARDANDO_VENDER: "vender",
+    AGUARDANDO_FECHAR_VENDA: "fechar venda",
     AGUARDANDO_CHECAR_STAMINA: "stamina",
     AGUARDANDO_TREINAR: "treinar",
     AGUARDANDO_INICIAR_HUNT: "hunt",
@@ -241,6 +242,9 @@
   // Estatisticas adicionais de combate.
   let combatRecent = { dealt: {}, received: {} };
   let combatMax = { dealt: 0, received: 0 };
+  // Agregados exclusivos por identificador de jogador (nao por janela ou party inteira).
+  let combatActorRecent = { dealt: {}, received: {} };
+  let combatActorMax = { dealt: {}, received: {} };
   let boxStats = { currentStartedAt: null, lastAttackAt: null, durations: [] };
   let overlayState = {};
   try {
@@ -258,6 +262,14 @@
       dealt: Math.max(0, Number(saved.combatMax?.dealt) || 0),
       received: Math.max(0, Number(saved.combatMax?.received) || 0)
     };
+    combatActorRecent = {
+      dealt: saved.combatActorRecent?.dealt || {},
+      received: saved.combatActorRecent?.received || {}
+    };
+    combatActorMax = {
+      dealt: saved.combatActorMax?.dealt || {},
+      received: saved.combatActorMax?.received || {}
+    };
     boxStats = saved.boxStats || boxStats;
     overlayState = saved.overlayState || {};
   } catch(_) {}
@@ -266,7 +278,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       trimKeys(damageTotals); trimKeys(receivedTotals); trimKeys(playerNames); trimKeys(dpsBuckets);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ damageTotals, receivedTotals, playerNames, dpsBuckets, dpsStartedAt, combatRecent, combatMax, boxStats, overlayState })); } catch(_) {}
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ damageTotals, receivedTotals, playerNames, dpsBuckets, dpsStartedAt, combatRecent, combatMax, combatActorRecent, combatActorMax, boxStats, overlayState })); } catch(_) {}
     }, 400);
   };
   const boxSummary = () => {
@@ -326,6 +338,72 @@
     return sum / 60;
   }
 
+  // A janela do personagem usa o nome configurado na Party mesmo quando a Party
+  // esta desligada. Sem identidade informada, mantem a visao coletiva legada.
+  const emNameKey = value => String(value || '').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
+  const emLocalCharacter = () => {
+    const name = String(window.__emerickLocalCharacterName || '').trim();
+    return name || null;
+  };
+  const emActorIds = character => {
+    const wanted = emNameKey(character);
+    const keys = new Set();
+    if (!wanted) return keys;
+    for (const [id, player] of Object.entries(playerNames)) {
+      if (emNameKey(player) === wanted) keys.add(String(id).toLowerCase());
+    }
+    for (const key of new Set([
+      ...Object.keys(damageTotals),...Object.keys(receivedTotals),
+      ...Object.keys(combatActorMax.dealt),...Object.keys(combatActorMax.received)
+    ])) {
+      if (emNameKey(key) === wanted) keys.add(String(key).toLowerCase());
+    }
+    return keys;
+  };
+  function emRecordActor(direction, actorId, amount) {
+    if (!actorId || !Number.isFinite(amount) || amount <= 0) return;
+    const id = String(actorId).toLowerCase();
+    const now = Math.floor(Date.now()/1000);
+    const byId = combatActorRecent[direction];
+    const recent = byId[id] || (byId[id] = {});
+    recent[now] = (Number(recent[now]) || 0) + amount;
+    for (const stamp of Object.keys(recent)) {
+      if (Number(stamp) <= now - 60 || Number(stamp) > now) delete recent[stamp];
+    }
+    // Limita os acumuladores a jogadores identificados no trafego.
+    const ids=Object.keys(byId);
+    if (ids.length>100) ids.slice(0,ids.length-100).forEach(key=>delete byId[key]);
+  }
+  function emActorDps60(direction, ids) {
+    const now=Math.floor(Date.now()/1000);
+    let sum=0;
+    for (const id of ids) {
+      const recent=combatActorRecent[direction][id];
+      if (!recent) continue;
+      for (const [stamp,value] of Object.entries(recent)) {
+        if (Number(stamp)<=now-60 || Number(stamp)>now) delete recent[stamp];
+        else sum+=Number(value)||0;
+      }
+    }
+    return sum/60;
+  }
+  const emActorMaxValue = (direction, ids) => {
+    let best=0;
+    for (const id of ids) {
+      best=Math.max(best,Number(combatActorMax[direction][id])||0);
+      // Mantem os melhores golpes historicos associados ao mesmo jogador,
+      // inclusive quando o protocolo variou a capitalizacao do identificador.
+      if (direction==='dealt') for (const [key, total] of Object.entries(damageTotals)) {
+        if (String(key).toLowerCase() !== id) continue;
+        for (const origin of Object.values(total.byOriginImpacts || {})) {
+          best=Math.max(best,Number(origin.bestHit)||0);
+        }
+      }
+    }
+    return best;
+  };
+
   function groupImpacts(damages){
     const impacts = [];
     const pending = new Map();
@@ -356,6 +434,8 @@
           combatMax.dealt,
           impact.amount
         );
+        const actor = String(impact.sourceId).toLowerCase();
+        combatActorMax.dealt[actor] = Math.max(Number(combatActorMax.dealt[actor]) || 0, impact.amount);
       }
       total.byOriginImpacts ||= {};
       const originTotal = total.byOriginImpacts[impact.origin] || { damage: 0, hits: 0, pairedHits: 0 };
@@ -407,6 +487,7 @@
         total.byType[damage.damageType] = (total.byType[damage.damageType] || 0) + damage.amount;
         damageTotals[damage.sourceId] = total;
         trackCombatSecond('dealt', damage.amount);
+        emRecordActor('dealt', damage.sourceId, damage.amount);
         dpsStartedAt ||= time;
         const minute = Math.floor((time - dpsStartedAt) / 60000);
         dpsBuckets[minute] = (dpsBuckets[minute] || 0) + damage.amount;
@@ -414,12 +495,18 @@
       if (damage.targetType === "player"){
         const targetId = damage.targetRuntimePlayerId ? `runtime:${damage.targetRuntimePlayerId}` : damage.targetId;
         if (!targetId) continue;
+        // O protocolo informa targetName em alguns golpes de jogador;
+        // retem esta associacao quando o dicionario de nomes nao a trouxe.
+        if (typeof damage.targetName === 'string' && damage.targetName.trim()) {
+          playerNames[String(targetId).toLowerCase()] = damage.targetName.trim();
+        }
         const total = receivedTotals[targetId] || { damage: 0, hits: 0, byType: {} };
         total.damage += damage.amount; total.hits += 1;
         total.byType[damage.damageType] = (total.byType[damage.damageType] || 0) + damage.amount;
         receivedTotals[targetId] = total;
 
         trackCombatSecond('received', damage.amount);
+        emRecordActor('received', targetId, damage.amount);
 
         if (
           Number.isFinite(damage.amount) &&
@@ -429,6 +516,8 @@
             combatMax.received,
             damage.amount
           );
+          const actor=String(targetId).toLowerCase();
+          combatActorMax.received[actor] = Math.max(Number(combatActorMax.received[actor]) || 0, damage.amount);
         }
       }
     }
@@ -599,7 +688,8 @@
     AGUARDANDO_VENDA: 12000,
     AGUARDANDO_PAINEL: 20000,
     AGUARDANDO_VERIFICAR: 120000,
-    AGUARDANDO_VENDER: 20000,
+    AGUARDANDO_VENDER: 25000,
+    AGUARDANDO_FECHAR_VENDA: 20000,
     AGUARDANDO_CHECAR_STAMINA: 15000,
     AGUARDANDO_TREINAR: 13 * 60 * 60 * 1000,
     AGUARDANDO_INICIAR_HUNT: 120000,
@@ -665,10 +755,21 @@
   let botLastAbortAt = 0;
   let botSellLastClickAt = 0;
   let botSellRetryCount = 0;
+  let botSaleCloseClickAt = 0;
+  let botSaleCloseAttempts = 0;
+  let botSaleHiddenSince = 0;
   const botPendingIntent = new Map();
   let botLastWrongCount = -1;
   let botStagnantCycles = 0;
   let botHuntAsyncRunning = false;
+  // Um unico bloqueio leve para impedir que Bestiary/Posicionamento
+  // interajam com o jogo enquanto o lider ajusta a hunt ou o lure.
+  const emHuntPriority = { active:false, stage:'idle', lastLure:'' };
+  window.__emerickHuntPriority = emHuntPriority;
+  // Uma sequencia por entrada na Hunt; nunca usar um segundo motor paralelo.
+  const emPartyAfterHunt = {
+    seen:false, done:false, running:false, nextTry:0, failures:0
+  };
   let botTrainingAsyncRunning = false;
   let botTrainingStartedAt = 0;
   let botTrainingTotalMs = 0;
@@ -783,16 +884,16 @@
   };
 
   const botFindPlayButton = () => {
-    const raiz = document.querySelector('[data-tour="home-play-explore"]');
+    // A raiz real do Stonegy e um DIV clicavel que contem Jogar/Explorar.
+    // Nao clicar no primeiro H5 sem verificar se o controle esta visivel.
+    const raiz = [...document.querySelectorAll('[data-tour="home-play-explore"]')]
+      .find(el => botVisible(el) && !el.closest('#stonegy-tm-overlay'));
     if (!raiz) return null;
-    const h5s = [...raiz.querySelectorAll("h5")];
-    const norm = (el) => (el.textContent || "").trim().toLowerCase();
-    return h5s.find((el) => norm(el) === "jogar")
-        ?? h5s.find((el) => norm(el) === "play")
-        ?? h5s.find((el) => norm(el) === "explore")
-        ?? h5s.find((el) => norm(el) === "explorar")
-        ?? h5s.find((el) => norm(el) === "explorer")
-        ?? h5s[0] ?? null;
+    const h5s = [...raiz.querySelectorAll('h5')].filter(botVisible);
+    const labels=h5s.map(el=>botNormalize(el.textContent));
+    if (!labels.includes('JOGAR') && !labels.includes('PLAY') &&
+        !labels.includes('EXPLORAR') && !labels.includes('EXPLORE')) return null;
+    return raiz;
   };
 
   const botFindHuntResult = (name) => {
@@ -942,15 +1043,23 @@
 
   // ==================== LURE ====================
   const botFindLureTrigger = () => {
-    const h5 = [...document.querySelectorAll("h5")].find(h => /^\d+$/.test((h.textContent || "").trim()));
-    return h5?.parentElement ?? null;
+    // HTML nativo enviado: <div aria-label="LURE"><h5>4</h5>...</div>.
+    // O numero sozinho pode ser HP ou inventario; nunca usar esse fallback.
+    const exact = [...document.querySelectorAll('[aria-label]')].find(el =>
+      botVisible(el) && !el.closest('#stonegy-tm-overlay') &&
+      botNormalize(el.getAttribute('aria-label')) === 'LURE'
+    );
+    if (exact) return exact;
+    // Nao usa outro numero como fallback, evitando clicar em HP ou inventario.
+    return null;
   };
   const botFindLureOptions = () => {
     return [...document.querySelectorAll("h5")]
       .filter(h => /^lure\s+\d+\s*-\s*\d+$/i.test((h.textContent || "").trim()))
       .map(label => {
-        const card = label.parentElement?.parentElement;
-        if (!card) return null;
+        // O ancestral com cursor clicavel e o cartao real; a arvore varia entre hunts.
+        const card = botFindClickableAncestor(label) || label.parentElement;
+        if (!card || !botVisible(card)) return null;
         // O titulo e "Lure N - M". Ler o primeiro h5 retornava NaN (virava zero).
         const faixa = /^lure\s+(\d+)\s*-\s*(\d+)$/i.exec((label.textContent || "").trim());
         const num = faixa ? Number(faixa[2]) : 0;
@@ -986,24 +1095,61 @@
 
   // ==================== FLUXO ASYNC DE HUNT + LURE ====================
   async function botExecutarAjustarLure() {
-    if (BOT_CONFIG.lureModo === 'off') return true;
-    await botJitter(400, 900);
-    const botaoQtd = botFindLureTrigger();
-    if (!botaoQtd) { botLog("info", "⚠ Lure btn não achado"); return true; }
-    botClick(botaoQtd);
-    botLog("info", "🎯 Lure aberto");
-    const opcoes = await botEsperarAte(() => { const o = botFindLureOptions(); return o.length ? o : null; }, 3000);
-    if (!opcoes) { botLog("error", "✗ Lure painel não abriu"); return false; }
-    const escolha = opcoes.reduce((a, b) => (b.num > a.num ? b : a));
-    if (!escolha.selecionado) { await botJitter(300, 700); botClick(escolha.card); botLog("success", "🎯 " + escolha.texto); }
-    else { botLog("info", "🎯 " + escolha.texto + " (já)"); }
-    await botJitter(400, 900);
-    const concluir = botAcharH5(TEXTO_CONCLUIR_LURE);
-    if (!concluir) { botLog("error", "✗ Concluir não achado"); return false; }
-    botClick(concluir);
-    botLog("success", "✓ Lure ok");
-    await botJitter(400, 900);
-    return true;
+    if (BOT_CONFIG.lureModo === 'off') {
+      emHuntPriority.lastLure = 'OFF';
+      return true;
+    }
+    // Espera o jogo estabilizar; ate tres tentativas espaçadas.
+    // Lure nunca concorre com o posicionamento neste navegador.
+    emHuntPriority.active = true;
+    emHuntPriority.stage = 'lure';
+    try {
+      await botJitter(1100, 1700);
+      let opcoes = botFindLureOptions();
+      if (!opcoes.length) {
+        for (let attempt=0;attempt<3;attempt++) {
+          const botaoQtd = botFindLureTrigger();
+          if (botaoQtd && botClick(botaoQtd)) {
+            botLog('info', '🎯 Abrindo Lure');
+            opcoes = await botEsperarAte(() => {
+              const found=botFindLureOptions();return found.length?found:null;
+            }, 2700) || [];
+            if (opcoes.length) break;
+          }
+          await botEsperar(1200);
+        }
+      }
+      if (!opcoes.length) {
+        emHuntPriority.lastLure = 'Não encontrado';
+        botLog('error', '✗ Lure não encontrado; não selecionei outro controle');
+        return false;
+      }
+      // Usar a maior faixa, como no motor Solo.
+      const escolha = opcoes.reduce((a,b) => b.num>a.num?b:a);
+      if (!escolha.selecionado) {
+        await botJitter(450, 850);
+        if (!botClick(escolha.card)) {
+          botLog('error', '✗ Clique de Lure falhou');return false;
+        }
+        botLog('info', '🎯 ' + escolha.texto);
+        await botJitter(600, 1000);
+      }
+      const concluir = await botEsperarAte(() =>
+        botAcharH5(TEXTO_CONCLUIR_LURE), 3500);
+      if (!concluir || !botClick(concluir)) {
+        emHuntPriority.lastLure = 'Concluir não encontrado';
+        botLog('error', '✗ Concluir Lure não encontrado');return false;
+      }
+      await botJitter(650, 1100);
+      emHuntPriority.lastLure = escolha.texto;
+      botLog('success', '✓ Lure ' + escolha.texto + ' concluído');
+      return true;
+    } finally {
+      // O ciclo de hunt pode refazer a tentativa de lure.
+      // Manter a prioridade ate o fim da sequencia completa.
+      emHuntPriority.active=Boolean(botHuntAsyncRunning);
+      emHuntPriority.stage=botHuntAsyncRunning?'lure':'ready';
+    }
   }
 
   async function botExecutarIniciarHuntEAjustarLure() {
@@ -1013,39 +1159,145 @@
       botLogAndToast("error", "⚠ Defina uma hunt alvo");
       return false;
     }
-    botLog("info", `▶ ${cfg.huntName}`);
-    let busca = document.querySelector(SELETOR_BUSCA_HUNT);
+    botLog("info", `▶ ${cfg.huntName}${botIsPartyLeader()?' · Party líder':' · Solo'}`);
+    emHuntPriority.active=true;
+    emHuntPriority.stage='iniciando';
+    // Nunca iniciar outra hunt se ela ja estiver em andamento.
+    if (botInHunt()) {
+      if (botIsPartyLeader()) {
+        emHuntPriority.stage='position';
+        botLog('info', 'Hunt detectada; primeiro posicionamento, depois Lure');
+        return true;
+      }
+      botLog('info', 'Hunt detectada; verificando Lure');
+      return await botExecutarAjustarLure();
+    }
+    let busca = botFindSearchInput();
     if (!busca) {
       const jogar = botFindPlayButton();
       if (!jogar) { botLog("error", "✗ Jogar não achado"); return false; }
       botLog("info", "▶ Jogar");
       await botJitter(500, 1200);
-      botClick(jogar);
-      busca = await botEsperarAte(() => document.querySelector(SELETOR_BUSCA_HUNT) || (botInHunt() ? "em-hunt" : null), 5000);
-      if (busca === "em-hunt") { botLogAndToast("flow", "✓ Em hunt"); await botJitter(1000, 2000); await botExecutarAjustarLure(); return true; }
+      if (!botClick(jogar)) {botLog('error','✗ Clique em Jogar falhou');return false;}
+      // O painel de hunts pode renderizar em varias etapas apos Jogar.
+      busca = await botEsperarAte(() => {
+        const input=botFindSearchInput();
+        return input || (botInHunt() ? 'em-hunt' : null);
+      }, botIsPartyLeader() ? 15000 : 9000);
+      if (busca === "em-hunt") {
+        botLogAndToast("flow", "✓ Em hunt");
+        if (botIsPartyLeader()) {
+          emHuntPriority.stage='position';
+          return true;
+        }
+        await botJitter(1000, 2000);
+        return await botExecutarAjustarLure();
+      }
       if (!busca) { botLog("error", "✗ Busca não abriu"); return false; }
     }
     await botJitter(400, 900);
-    botTypeInputNative(busca, cfg.huntName);
+    if (!busca?.isConnected || !botVisible(busca)) {
+      busca=await botEsperarAte(()=>botFindSearchInput(),4000);
+    }
+    if (!busca || !botTypeInputNative(busca, cfg.huntName)) {
+      botLog('error','✗ Campo de busca da Hunt não está pronto');return false;
+    }
     botLog("info", `🔎 ${cfg.huntName}`);
     await botJitter(800, 1500);
-    const resultado = await botEsperarAte(() => botFindHuntResult(cfg.huntName), 4000);
+    const resultado = await botEsperarAte(() => botFindHuntResult(cfg.huntName), 8500);
     if (!resultado) { botLog("error", `✗ ${cfg.huntName} não achado`); return false; }
     await botJitter(300, 800);
-    botClick(resultado);
+    if (!botClick(resultado)) {botLog('error','✗ Clique no resultado da Hunt falhou');return false;}
     botLog("success", "✓ Resultado");
-    const conf = await botEsperarAte(() => botAcharH5(TEXTO_CONFIRMAR_HUNT), 4000);
+    const conf = await botEsperarAte(() => botAcharH5(TEXTO_CONFIRMAR_HUNT) || botFindStartHuntButton(), 8500);
     if (!conf) { botLog("error", "✗ Iniciar não achado"); return false; }
     await botJitter(400, 900);
-    botClick(conf);
+    if (!botClick(conf)) {botLog('error','✗ Clique em Iniciar Hunt falhou');return false;}
     botLog("success", "✓ Iniciar");
     // Na Party aguarda a confirmacao dos participantes pelo jogo.
-    const comecou = await botEsperarAte(() => botInHunt(), botIsPartyLeader() ? 45000 : 6000);
+    const comecou = await botEsperarAte(() => botInHunt(), botIsPartyLeader() ? 60000 : 6000);
     if (!comecou) { botLog("error", "✗ Hunt não iniciou"); return false; }
     botLogAndToast("flow", "✓ Em hunt");
+    if (botIsPartyLeader()) {
+      // Party: o posicionamento vem antes do Lure.
+      // O monitor abaixo aguarda a selecao nativa do quadrado.
+      emHuntPriority.stage='position';
+      return true;
+    }
+    // Solo: mantem exatamente a sequencia que ja funcionava.
     await botJitter(1000, 2000);
     await botExecutarAjustarLure();
     return true;
+  }
+
+  // ==================== PARTY: POSICAO > LURE > BESTIARIO ====================
+  function botPartyPostHuntTick() {
+    const gate = window.__emerickPartyGate;
+    if (!gate?.enabled || !gate.isLeader) {
+      if (!emPartyAfterHunt.running) {
+        emPartyAfterHunt.seen=false;
+        emPartyAfterHunt.done=false;
+        emHuntPriority.active=false;
+        emHuntPriority.stage='idle';
+      }
+      return;
+    }
+    const hunting=botInHunt();
+    if (!hunting) {
+      if (emPartyAfterHunt.seen && !emPartyAfterHunt.running) {
+        emPartyAfterHunt.seen=false;
+        emPartyAfterHunt.done=false;
+        emPartyAfterHunt.failures=0;
+        emPartyAfterHunt.nextTry=0;
+        emHuntPriority.active=false;
+        emHuntPriority.stage='idle';
+      }
+      return;
+    }
+    if (!emPartyAfterHunt.seen) {
+      emPartyAfterHunt.seen=true;
+      emPartyAfterHunt.done=false;
+      emPartyAfterHunt.failures=0;
+      emPartyAfterHunt.nextTry=0;
+      emHuntPriority.stage='position';
+      emHuntPriority.active=true;
+      botLog('flow','📍 Party: aguardando posicionamento antes do Lure');
+    }
+    if (emPartyAfterHunt.done || emPartyAfterHunt.running) return;
+    // Enquanto nao se posicionar, NAO entrar no Lure nem no Bestiary.
+    if (gate.positionPending || gate.readyPending) {
+      emHuntPriority.active=true;
+      emHuntPriority.stage='position';
+      return;
+    }
+    if (!BOT_CONFIG.botAtivo || botHuntAsyncRunning || botBusy || botGetFlow() ||
+        botConnLostActive || botInactivityActive || Date.now()<emPartyAfterHunt.nextTry)
+      return;
+    emPartyAfterHunt.running=true;
+    emHuntPriority.active=true;
+    emHuntPriority.stage='lure';
+    botLog('flow','🎯 Party: posição definida; agora ajustando Lure');
+    botExecutarAjustarLure().then(ok => {
+      if (!botInHunt() || !botIsPartyLeader()) return;
+      if (ok) {
+        emPartyAfterHunt.done=true;
+        emHuntPriority.stage='done';
+        emHuntPriority.active=false;
+        botLog('success','✓ Party: posição e Lure concluídos; Bestiary liberado');
+      } else {
+        emPartyAfterHunt.failures++;
+        emPartyAfterHunt.nextTry=Date.now()+12000;
+        emHuntPriority.stage='lure-retry';
+        emHuntPriority.active=true;
+        botLog('warn','⚠ Lure não concluído; nova tentativa em 12s (Bestiary aguarda)');
+      }
+    }).catch(e => {
+      emPartyAfterHunt.failures++;
+      emPartyAfterHunt.nextTry=Date.now()+12000;
+      emHuntPriority.stage='lure-retry';
+      emHuntPriority.active=true;
+      botLog('error','✗ Lure Party: '+String(e?.message||e));
+    }).finally(() => { emPartyAfterHunt.running=false; });
   }
 
   // ==================== FLUXO ASYNC DE TREINO ====================
@@ -1207,73 +1459,63 @@
 
   const botFindConcluirLureButton = () => botAcharH5(TEXTO_CONCLUIR_LURE) ?? botFindAnyTextMulti(["CONCLUIR", "CONFIRMAR"]);
 
-  // Cancela exclusivamente a venda.
-  // Nunca cancela a confirmacao da Party.
+  // O painel de venda pode ficar somente com CANCELAR quando nao ha itens.
+  // Durante uma etapa da venda, o botao e a propria prova de que ainda ha
+  // uma janela a fechar. Nao depende de escudos nem de texto de item.
   const botFindCancelButton = () => {
     const flow = botGetFlow();
+    if (!flow || ![
+      "AGUARDANDO_PAINEL", "AGUARDANDO_VERIFICAR", "AGUARDANDO_VENDER",
+      "AGUARDANDO_FECHAR_VENDA"
+    ].includes(flow.etapa)) return null;
 
-    if (
-      !flow ||
-      ![
-        "AGUARDANDO_PAINEL",
-        "AGUARDANDO_VERIFICAR",
-        "AGUARDANDO_VENDER"
-      ].includes(flow.etapa)
-    ) return null;
+    // Nunca cancelar a prontidao da Party.
+    if ([...document.querySelectorAll('h5')].some(h =>
+      botVisible(h) && !h.closest('#stonegy-tm-overlay') &&
+      botNormalize(h.textContent) === 'CONFIRMACAO DE PRONTIDAO')) return null;
 
-    const labels = [
-      ...document.querySelectorAll("h4,h5,h6,p,span")
-    ];
+    const candidates = [...document.querySelectorAll('h5')]
+      .filter(h => botVisible(h) && !h.closest('#stonegy-tm-overlay') &&
+        botNormalize(h.textContent) === 'CANCELAR')
+      .map(h => h.closest('.highlight-animation') ||
+        h.closest('button,[role="button"]'))
+      .filter(el => el && botVisible(el) && !el.closest('#stonegy-tm-overlay'));
 
-    const hasVisibleLabel = (pattern) => labels.some(el =>
-      botVisible(el) &&
-      !el.closest("#stonegy-tm-overlay") &&
-      pattern.test(
-        botNormalize(el.textContent || "")
-      )
-    );
-
-    // A janela de Party tambem possui CANCELAR.
-    // Nunca interagir com ela neste fluxo.
-    if (
-      hasVisibleLabel(/^CONFIRMACAO DE PRONTIDAO$/)
-    ) return null;
-
-    // Exige evidencias de que o painel de venda
-    // esta aberto antes de procurar CANCELAR.
-    const saleVisible =
-      botSellPanelOpen() ||
-      hasVisibleLabel(
-        /^(VENDA RAPIDA|VENDER ITENS|CONFIRMAR VENDA|ITENS PARA VENDA|SEM ITENS|NENHUM ITEM|NENHUM ITEM PARA VENDER|NAO HA ITENS PARA VENDER)$/
-      );
-
-    if (!saleVisible) return null;
-
-    for (
-      const h of document.querySelectorAll("h5,h4,h6")
-    ) {
-      if (!botVisible(h)) continue;
-
-      if (h.closest("#stonegy-tm-overlay")) {
-        continue;
-      }
-
-      if (
-        botNormalize(h.textContent || "") !== "CANCELAR"
-      ) continue;
-
-      // Clica no bloco visual do Stonegy,
-      // nao somente no texto h5.
-      const target =
-        h.closest(".highlight-animation") ||
-        h.closest("button,[role=button]");
-
-      if (target && botVisible(target)) {
-        return target;
-      }
-    }
-
+    // Um unico botao nativo, dentro de uma etapa que abriu a loja.
+    if (candidates.length === 1) return candidates[0];
+    // Duvida sobre qual janela: nunca clicar em um Cancelar aleatorio.
+    if (candidates.length !== 1) return null;
     return null;
+  };
+
+  // Nao avancar enquanto a janela de venda estiver aberta.
+  const botBeginSaleClose = (reason) => {
+    const cancel = botFindCancelButton();
+    if (!cancel || !botClick(cancel)) return false;
+    botLog('flow', `🚪 ${reason} · fechando venda`);
+    botSaleCloseClickAt = Date.now();
+    botSaleCloseAttempts = 1;
+    botSaleHiddenSince = 0;
+    botSetFlow('AGUARDANDO_FECHAR_VENDA');
+    return true;
+  };
+  const botSaleReturnedHome = () =>
+    !botSellPanelOpen() && !botFindCancelButton() &&
+    Boolean(botFindPlayButton() || botFindGameModePanel());
+  const botSaleFinish = () => {
+    if (botSellPendingSuccess) {
+      botRefilStats.sellCount += 1;
+      botSaveRefilStats();
+      botSellPendingSuccess = false;
+      botLog('flow', `🛒 Venda #${botRefilStats.sellCount}`);
+    }
+    botSellRetryCount = 0;
+    botSellLastClickAt = 0;
+    botSaleCloseClickAt = 0;
+    botSaleCloseAttempts = 0;
+    botSaleHiddenSince = 0;
+    botLogAndToast('flow', '✓ Loja fechada · Play/Explore liberado');
+    botSetFlow('AGUARDANDO_CHECAR_STAMINA');
   };
 
   const botListSignature = () => { const parts = []; for (const node of document.querySelectorAll("button,[role=button],a,h1,h2,h3,h4,h5,h6,p,span,label")){ if (!botVisible(node)) continue; const t = botNormalize(node.textContent || ""); if (t.length > 3 && t.length < 120) parts.push(t); if (parts.length >= 80) break; } return parts.join("|"); };
@@ -1323,11 +1565,22 @@
     localStorage.removeItem(BOT_FLOW_KEY);
     botBusy = false; botPanelWaitStart = 0; botVerifyUntil = 0; botProtectAttempts = 0;
     botSellLastClickAt = 0; botSellRetryCount = 0;
+    botSaleCloseClickAt = 0; botSaleCloseAttempts = 0; botSaleHiddenSince = 0;
     botLastWrongCount = -1; botStagnantCycles = 0;
     botPage = 0; botWaitingPage = false;
   };
   const botResetRecoveryCounters = () => { botRecoveryCount = 0; botLastRecoveryStep = null; };
-  const botInHunt = () => Boolean(botAcharH5(TEXTO_FINALIZAR_HUNT));
+  // Party e Solo podem apresentar sinais diferentes da mesma hunt.
+  // O jogo exibe Hunt Time e Max durante a caçada; não depender apenas
+  // do botão Finalizar Hunt (que pode ficar oculto em Party).
+  const botInHunt = () => Boolean(
+    botAcharH5(TEXTO_FINALIZAR_HUNT) ||
+    (() => {
+      const signals = [...document.querySelectorAll('p')].filter(p =>
+        !p.closest('#stonegy-tm-overlay') && botVisible(p)).map(p => (p.textContent || '').trim());
+      return signals.some(s => /^Hunt\s*Time:\s*\d{1,3}:\d{2}:\d{2}$/i.test(s));
+    })()
+  );
 
   // ==================== INATIVIDADE ====================
   const botFindInactivityPanel = () => {
@@ -1340,7 +1593,8 @@
   };
   const botFindResumeButton = () => botFindAnyTextMulti(["RETOMAR", "RESUME", "CONTINUAR", "VOLTAR", "RETOMAR JOGO", "RETOMAR HUNT"]);
   const botHandleInactivity = () => {
-    if (!BOT_CONFIG.botAtivo) return false;
+    // Membros da Party usam protecao/reconexao Solo, mas nao iniciam hunt.
+    if (!BOT_CONFIG.botAtivo && !window.__emerickPartyGate?.enabled) return false;
     const panel = botFindInactivityPanel();
     if (!panel) {
       if (botInactivityActive) { botInactivityActive = false; botLogAndToast("success", "✓ Retomado"); }
@@ -1715,7 +1969,7 @@
   const emBestiary = {
     results: [], busy: false, status: "idle", message: "Entre em uma hunt para consultar o Bestiario.",
     auto: false, enabled: false, inHunt: false, scanned: false, lastCheckedAt: 0, lastSignature: "",
-    startingAt: 0, generation: 0, openedByUs: false, nextAutoAttempt: 0
+    startingAt: 0, generation: 0, openedByUs: false, nextAutoAttempt: 0, priorityWaitMs: 900
   };
   try { emBestiary.auto = JSON.parse(localStorage.getItem(EM_BESTIARY_KEY) || "{}").auto === true; } catch (_) {}
 
@@ -1723,6 +1977,9 @@
     emBestiary.enabled =
       localStorage.getItem(EM_BESTIARY_PAUSE_KEY) === "0";
   } catch (_) {}
+  // Ao iniciar Bestiario, acompanhar automaticamente: o usuario nao
+  // precisa habilitar um segundo checkbox escondido.
+  if (emBestiary.enabled) emBestiary.auto = true;
 
   const emSleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   const emNorm = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
@@ -1760,7 +2017,10 @@
     const names = new Set();
     for (const entry of list.children) {
       const name = (entry.children[0]?.textContent || "").trim();
-      const kills = Number.parseInt((entry.children[1]?.textContent || "").replace(/[^\d]/g, ""), 10);
+      const rawKills = (entry.children[1]?.textContent || '').trim();
+      // Ler apenas o primeiro numero, sem colar dois contadores como 2/100.
+      const killMatch = rawKills.match(/^(?:[^\d]*)(\d[\d.,]*)/);
+      const kills = killMatch ? Number.parseInt(killMatch[1].replace(/[.,]/g,''),10) : NaN;
       if (!name || names.has(emNorm(name))) continue;
       names.add(emNorm(name));
       monsters.push({ name, kills: Number.isFinite(kills) ? kills : null });
@@ -1811,8 +2071,24 @@
     }
     return botClick(element);
   };
+  // Prioridade: hunt/venda > confirmacao > lure > posicionamento > Bestiary.
+  // Este bloqueio tambem e checado DURANTE a consulta, nao apenas antes.
+  const emPriorityBlocked = () => {
+    if (emHuntPriority.active) return 'Lure/inicio de Hunt ainda em andamento.';
+    const gate = window.__emerickPartyGate;
+    if (gate?.enabled && gate.positionPending) return 'Aguardando a posição da Party.';
+    if (gate?.enabled && gate.readyPending) return 'Aguardando a confirmação da Party.';
+    if (gate?.enabled && [...document.querySelectorAll('h5')].some(el =>
+      botVisible(el) && botNormalize(el.textContent) === 'CONFIRMACAO DE PRONTIDAO'))
+      return 'Aguardando a confirmação da Party.';
+    if (gate?.enabled && [...document.querySelectorAll('button[aria-label^="Selecionar posição "]')].some(botVisible))
+      return 'Aguardando o posicionamento da Party.';
+    return '';
+  };
   const emScanBlocked = () => {
     if (!emIsHunt()) return "A consulta esta disponivel durante uma hunt.";
+    const priority = emPriorityBlocked();
+    if (priority) return priority;
     if (emGameLoading()) return "Aguardando a tela do jogo terminar de carregar.";
     if (botBusy || botHuntAsyncRunning || botTrainingAsyncRunning || botGetFlow()) {
       return "Aguardando o ciclo de hunt, venda ou treinamento ficar livre.";
@@ -2035,6 +2311,7 @@
     }
     emBestiary.inHunt = true; // O tick nao deve apagar uma consulta manual iniciada antes do primeiro polling.
     emBestiary.busy = true;
+    window.__emerickBestiaryBusy = true;
     emBestiary.status = "loading";
     emBestiary.message = "Consultando...";
     emRenderBestiary();
@@ -2049,7 +2326,9 @@
       emBestiary.openedByUs = true;
       if (!await emSelectBestiary()) throw new Error("A aba Bestiary não abriu.");
       for (const monster of monsters) {
-        if (!emBestiary.enabled || run !== emBestiary.generation || !emIsHunt() || botBusy || botGetFlow() || botHuntAsyncRunning || botTrainingAsyncRunning) break;
+        if (!emBestiary.enabled || run !== emBestiary.generation || !emIsHunt() ||
+            botBusy || botGetFlow() || botHuntAsyncRunning || botTrainingAsyncRunning || emPriorityBlocked())
+          throw new Error('Consulta adiada: o fluxo principal retomou.');
         let progress = await emReadOneCreature(monster);
         if (!progress?.total &&
           emBestiary.enabled &&
@@ -2058,10 +2337,8 @@
           progress = await emReadOneCreature(monster);
         }
 
-        if (
-          !emBestiary.enabled ||
-          run !== emBestiary.generation
-        ) break;
+        if (!emBestiary.enabled || run !== emBestiary.generation || emPriorityBlocked() || !emIsHunt())
+          throw new Error('Consulta adiada: hunt, lure ou posição em andamento.');
         const previous = emBestiary.results.find(item => emNorm(item.name) === emNorm(monster.name) && !item.error);
         const snapshot = { name: monster.name, killsAtCheck: monster.kills,
           firstSeenAt: previous?.firstSeenAt || Date.now(),
@@ -2091,16 +2368,23 @@
       emBestiary.status = "done";
       emBestiary.message = `Atualizado às ${new Date().toLocaleTimeString("pt-BR")}. Valores entre consultas são estimados.`;
     } catch (error) {
-      emBestiary.status = "error";
-      emBestiary.message = error?.message || "Não foi possível consultar o Bestiário.";
-      console.warn("[EmerickST Bestiario]", error);
+      emBestiary.status = 'waiting';
+      emBestiary.message = error?.message || 'Consulta adiada; tentarei novamente quando estiver seguro.';
+      emBestiary.scanned = false;
+      emBestiary.nextAutoAttempt = Date.now()+15000;
+      console.warn('[EmerickST Bestiario]', error);
     } finally {
       // Nunca fechar um modal desconhecido. Fechar apenas o Stonegypedia que abrimos.
       if (opened && emBestiary.openedByUs && emPediaRoot()) {
-        document.dispatchEvent(new KeyboardEvent("keydown", { key:"Escape", code:"Escape", bubbles:true, cancelable:true }));
+        // Fechar apenas quando nao existe prontidao nativa simultanea.
+        const readiness = [...document.querySelectorAll('h5')].some(el =>
+          botVisible(el) && botNormalize(el.textContent)==='CONFIRMACAO DE PRONTIDAO');
+        if (!readiness) document.dispatchEvent(new KeyboardEvent('keydown',
+          { key:'Escape', code:'Escape', bubbles:true, cancelable:true }));
       }
       emBestiary.openedByUs = false;
       emBestiary.busy = false;
+      window.__emerickBestiaryBusy = false;
       emRenderBestiary();
     }
   };
@@ -2121,10 +2405,11 @@
     }
     if (!emBestiary.inHunt) {
       emBestiary.inHunt = true;
+      emBestiary.startingAt = Date.now();
       emBestiary.scanned = false;
       emBestiary.results = [];
       emBestiary.status = "idle";
-      emBestiary.message = "Hunt detectada. Clique em Atualizar.";
+      emBestiary.message = "Hunt detectada. Aguardando posição e Lure antes da consulta.";
     }
     if (emBestiary.results.length && !emBestiary.busy) {
       const live = emHuntMonsters();
@@ -2146,8 +2431,10 @@
         }
       }
     }
-    // A consulta automatica e OPT-IN. Atrasos/retries sao tratados pelo tick seguinte.
+    // Bestiary executa apos as etapas anteriores serem CONCLUIDAS.
+    // Sem espera arbitraria por "fluxo livre": emPriorityBlocked determina a ordem.
     if (emBestiary.auto && !emBestiary.busy && !emBestiary.scanned &&
+        Date.now()-emBestiary.startingAt >= emBestiary.priorityWaitMs &&
         Date.now() >= emBestiary.nextAutoAttempt && !emScanBlocked() && emHuntMonsters().length) {
       emBestiary.nextAutoAttempt = Date.now() + 15000; // Intervalo minimo entre falhas e tentativas automaticas.
       emRefreshBestiary().catch(error => console.warn("[EmerickST Bestiario]", error));
@@ -2783,6 +3070,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       <button class="tab" data-view="bestiary">Bestiário</button>
     </div>
     <section class="dash-view" data-dashboard data-selected="dealt">
+      <div data-dashboard-character style="font-size:10px;color:#a6b1c5;padding:8px 12px 0">Todos os personagens</div>
       <div class="dash-metrics">
         <button type="button" class="dash-metric active" data-metric="dealt" aria-pressed="true"><span class="dash-metric-label">↗ Dano causado</span><span class="dash-number" data-dealt-total>0</span><small>Infligido aos monstros</small>
         <span class="dash-extra">
@@ -2790,7 +3078,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           <b data-dealt-dps>0</b>
         </span>
         <span class="dash-extra">
-          <span>Maior golpe</span>
+          <span>Maior golpe pessoal</span>
           <b data-dealt-max>0</b>
         </span>
         </button>
@@ -2800,7 +3088,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           <b data-received-dps>0</b>
         </span>
         <span class="dash-extra">
-          <span>Maior golpe</span>
+          <span>Maior golpe pessoal</span>
           <b data-received-max>0</b>
         </span>
         </button>
@@ -2815,8 +3103,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       <div class="settings-card"><strong>Estatísticas e automação</strong><p>As métricas de combate continuam no Dashboard. Os controles do bot permanecem na aba Hunt e o Bestiário continua independente.</p></div>
     </section>
     <section class="bestiary-view" data-bestiary-view hidden>
-      <div class="bestiary-toolbar"><strong>Bestiário da hunt</strong><button type="button" class="bestiary-toggle" data-bestiary-toggle aria-pressed="false">▶ Iniciar</button><button type="button" class="bestiary-refresh" data-bestiary-refresh>↻ Atualizar</button></div>
-      <label class="bestiary-auto"><input type="checkbox" data-bestiary-auto> Consultar automaticamente ao entrar na hunt</label>
+      <div class="bestiary-toolbar"><strong>Bestiário</strong><button type="button" class="bestiary-refresh" data-bestiary-refresh title="Conferir progresso real">↻</button><button type="button" class="bestiary-toggle" data-bestiary-toggle aria-pressed="false">▶ Iniciar</button></div>
       <div class="bestiary-status" data-bestiary-status>Aguardando hunt.</div>
       <div data-bestiary-rows><div class="bestiary-empty">Clique em Atualizar durante uma hunt.</div></div>
     </section>
@@ -3064,6 +3351,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         emBestiary.message = "Bestiário parado.";
         emBestiary.status = "paused";
       } else {
+        // Bestiario ON: consulta automatica apos as etapas prioritarias.
+        emBestiary.auto = true;
+        try { localStorage.setItem(EM_BESTIARY_KEY, JSON.stringify({auto:true})); } catch (_) {}
         // Revalidar a hunt ao retomar.
         emBestiary.inHunt = false;
         emBestiary.scanned = false;
@@ -3074,23 +3364,13 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
       emRenderBestiary();
 
-      if (
-        emBestiary.enabled &&
-        emIsHunt() &&
-        !emBestiary.busy
-      ) {
-        emRefreshBestiary();
-      }
+      // Nao abrir Stonegypedia imediatamente: o tick aguarda
+      // a conclusao da Hunt, do Lure e do Posicionamento.
     };
 
     shadow.querySelector("[data-bestiary-refresh]").onclick = () => emRefreshBestiary();
-    shadow.querySelector("[data-bestiary-auto]").onchange = (event) => {
-      emBestiary.auto = Boolean(event.target.checked);
-      try { localStorage.setItem(EM_BESTIARY_KEY, JSON.stringify({ auto: emBestiary.auto })); } catch (_) {}
-      emBestiary.message = emBestiary.auto ? "Consulta automática ativada para esta e próximas hunts." : "Consulta automática desativada.";
-      emBestiary.status = "idle";
-      emRenderBestiary();
-    };
+    // Acompanhamento automatico integrado ao botao Iniciar do Bestiario.
+    // O botao ↻ permanece disponivel para revalidar o valor real.
     shadow.querySelector("#reset").onclick = () => { damageTotals = {}; receivedTotals = {}; dpsBuckets = {}; dpsStartedAt = null; boxStats = {
           currentStartedAt: null,
           lastAttackAt: null,
@@ -3098,6 +3378,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         };
         combatRecent = { dealt: {}, received: {} };
         combatMax = { dealt: 0, received: 0 };
+        combatActorRecent = { dealt: {}, received: {} };
+        combatActorMax = { dealt: {}, received: {} };
         persist();
         update(); };
     shadow.querySelector("#toggle").onclick = () => { const entries = selectedMetric === "received" ? summary(receivedTotals) : summary(damageTotals); const keys = entries.map((e) => `${selectedMetric}:${e.sourceId}`); if (keys.length && keys.every((k) => expanded.has(k))) keys.forEach((k) => expanded.delete(k)); else keys.forEach((k) => expanded.add(k)); update(); };
@@ -3146,29 +3428,29 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       if (activeView === "bestiary") { emRenderBestiary(); return; }
       if (activeView === "bot") { botUpdatePanel(); return; }
 
-      // Reutiliza os acumuladores de combate; nenhuma leitura WebSocket e alterada.
-      const dealt = summary(damageTotals);
-      const received = summary(receivedTotals);
+      // Totais, DPS, nomes, origens e participacao sao sempre coletivos.
+      // SOMENTE o maior golpe causado/recebido pertence ao personagem desta aba.
+      const localCharacter=emLocalCharacter();
+      const actorIds=localCharacter ? emActorIds(localCharacter) : null;
+      const dealt=summary(damageTotals);
+      const received=summary(receivedTotals);
       const sum = (items) => items.reduce((acc, item) => acc + item.damage, 0).toLocaleString("pt-BR");
       shadow.querySelector("[data-dealt-total]").textContent = sum(dealt);
       shadow.querySelector("[data-received-total]").textContent = sum(received);
+      const heading=shadow.querySelector('[data-dashboard-character]');
+      if (heading) heading.textContent=localCharacter
+        ? 'Equipe completa · maiores golpes: '+localCharacter
+        : 'Equipe completa · configure o nome na Party para maiores golpes';
 
-      const formatDps = (n) =>
-        n.toLocaleString("pt-BR", {
-          maximumFractionDigits: 1
-        });
-
+      const formatDps = (n) => n.toLocaleString("pt-BR", {maximumFractionDigits:1});
       shadow.querySelector("[data-dealt-dps]").textContent =
-        formatDps(combatDps60("dealt"));
-
+        formatDps(combatDps60('dealt'));
       shadow.querySelector("[data-received-dps]").textContent =
-        formatDps(combatDps60("received"));
-
+        formatDps(combatDps60('received'));
       shadow.querySelector("[data-dealt-max]").textContent =
-        combatMax.dealt.toLocaleString("pt-BR");
-
+        actorIds ? emActorMaxValue('dealt',actorIds).toLocaleString('pt-BR') : '—';
       shadow.querySelector("[data-received-max]").textContent =
-        combatMax.received.toLocaleString("pt-BR");
+        actorIds ? emActorMaxValue('received',actorIds).toLocaleString('pt-BR') : '—';
       dashboard.dataset.selected = selectedMetric;
       shadow.querySelectorAll("[data-metric]").forEach((btn) => {
         const active = btn.dataset.metric === selectedMetric;
@@ -3622,9 +3904,12 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== LOOP ====================
   function botProcess() {
-    if (!BOT_CONFIG.botAtivo || !botPartyAllowsHunt() || botBusy) return;
+    // Primeiro, em Solo, Lider E Membro: os mecanismos de seguranca.
+    // A restricao de executar caça/venda vem APOS reconexao e AFK.
+    if (botBusy || (!BOT_CONFIG.botAtivo && !window.__emerickPartyGate?.enabled)) return;
     if (botHandleConnectionLost()) { botUpdatePanel(); return; }
-    if (botHandleInactivity()) return;
+    if (botHandleInactivity()) { botUpdatePanel(); return; }
+    if (!BOT_CONFIG.botAtivo || !botPartyAllowsHunt()) return;
     const flow = botGetFlow(); if (!flow) return;
     botBusy = true;
     try {
@@ -3673,20 +3958,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           botLog("flow", `✓ Proteção OK · ${v.total}`);
           botProtectAttempts = 0; botLastWrongCount = -1; botStagnantCycles = 0;
           if (!botHasSellableItems()) {
-            const cancel = botFindCancelButton();
-            if (cancel && botClick(cancel)) {
-              botLog(
-                "flow",
-                "🚫 Nada a vender · CANCELAR acionado"
-              );
-              botSetFlow("AGUARDANDO_CHECAR_STAMINA");
-              botSellRetryCount = 0; botSellLastClickAt = 0;
-              return;
-            }
-            botLog(
-              "warn",
-              "⚠ Sem itens: aguardando botão CANCELAR da loja"
-            );
+            if (botBeginSaleClose('Sem itens vendaveis')) return;
+            // Uma venda anterior pode ter fechado a loja sozinha.
+            if (botSaleReturnedHome()) { botSaleFinish(); return; }
+            botLog('warn','⚠ Sem itens: CANCELAR ainda nao apareceu na loja');
             return;
           }
           botSetFlow("AGUARDANDO_VENDER");
@@ -3719,75 +3994,60 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         if (!BOT_CONFIG.skipProtection || botIsPartyLeader()) {
           const v = botAllItemsInCorrectState();
           if (!v.ok) {
-            botLog("error", `✗ Prova final: ${v.wrong.map(w => w.name).join(", ")}`);
-            botClearFlow("prova final falhou");
+            botLog('error', `✗ Protecao final: ${v.wrong.map(w=>w.name).join(', ')}`);
+            botClearFlow('protecao alterada antes da venda');
             return;
           }
         }
+        // Antes de qualquer clique VENDER: impedir a venda com lista vazia.
         if (!botHasSellableItems()) {
-          const cancel = botFindCancelButton();
-          if (cancel && botClick(cancel)) {
-            botLog(
-              "flow",
-              "🚫 Nada a vender · CANCELAR acionado"
-            );
-            botSetFlow("AGUARDANDO_CHECAR_STAMINA");
-            botSellRetryCount = 0; botSellLastClickAt = 0;
-            botSellPendingSuccess = false;
-            return;
-          }
-
-          // Lista vazia: nunca executar VENDER.
+          if (botBeginSaleClose('Lista vazia')) return;
+          if (botSaleReturnedHome()) { botSaleFinish(); return; }
           return;
         }
+        // Aguardar o jogo processar a venda; sem rajadas a cada 400 ms.
+        if (botSellPendingSuccess &&
+            Date.now() - botSellLastClickAt < BOT_SELL_RETRY_MS) return;
         const confirm = botFindSellConfirmButton();
-        if (confirm) {
-          if (botClick(confirm)) {
-            botLog("flow", "🖱 Vendendo");
-            botSellLastClickAt = Date.now();
-            botSellRetryCount += 1;
-            botSellPendingSuccess = true;
-          }
-        } else {
-          if (!botSellPanelOpen() && !botSellPanelReady()) {
-            if (botSellPendingSuccess) {
-              botRefilStats.sellCount += 1;
-              botSaveRefilStats();
-              botSellPendingSuccess = false;
-              botLog("flow", `🛒 Venda #${botRefilStats.sellCount}`);
-            }
-            botLogAndToast("flow", "✓ Venda concluída");
-            botSetFlow("AGUARDANDO_CHECAR_STAMINA");
-            botSellRetryCount = 0; botSellLastClickAt = 0;
-            return;
-          }
-          if (Date.now() - botSellLastClickAt > BOT_SELL_RETRY_MS) {
-            botLog("warn", "⚠ VENDER não achado");
-            botSellLastClickAt = Date.now();
+        if (!confirm) {
+          if (botSaleReturnedHome()) { botSaleFinish(); return; }
+          // Pode restar apenas CANCELAR apos finalizar a venda.
+          if (botSellPendingSuccess && botBeginSaleClose('Venda efetuada')) return;
+          return;
+        }
+        if (botSellRetryCount >= BOT_SELL_MAX_RETRIES) {
+          botLog('warn','⚠ Vender sem confirmacao: tentando fechar a loja');
+          if (botBeginSaleClose('Limite de tentativas')) return;
+          botClearFlow('nao foi possivel concluir a venda');
+          return;
+        }
+        if (botClick(confirm)) {
+          botLog('flow', `🖱 VENDER · tentativa ${botSellRetryCount+1}`);
+          botSellLastClickAt = Date.now();
+          botSellRetryCount += 1;
+          botSellPendingSuccess = true;
+        }
+      }
+      else if (flow.etapa === "AGUARDANDO_FECHAR_VENDA") {
+        // Nao iniciar PLAY, HUNT ou BESTIARIO com a loja aberta.
+        if (botSaleReturnedHome()) {
+          if (!botSaleHiddenSince) botSaleHiddenSince = Date.now();
+          if (Date.now() - botSaleHiddenSince >= 650) botSaleFinish();
+          return;
+        }
+        botSaleHiddenSince = 0;
+        const cancel = botFindCancelButton();
+        if (cancel && Date.now() - botSaleCloseClickAt >= 2500 &&
+            botSaleCloseAttempts < 3) {
+          if (botClick(cancel)) {
+            botSaleCloseAttempts += 1;
+            botSaleCloseClickAt = Date.now();
+            botLog('warn', `↻ CANCELAR · tentativa ${botSaleCloseAttempts}`);
           }
         }
-        if (botSellRetryCount > 0 && Date.now() - botSellLastClickAt > BOT_SELL_RETRY_MS) {
-          if (botSellRetryCount >= BOT_SELL_MAX_RETRIES) {
-            if (botSellPendingSuccess) {
-              botRefilStats.sellCount += 1;
-              botSaveRefilStats();
-              botSellPendingSuccess = false;
-            }
-            botLog("warn", `↻ VENDER ${BOT_SELL_MAX_RETRIES}x → CANCELAR`);
-            const cancel = botFindCancelButton();
-            if (cancel) botClick(cancel);
-            botSetFlow("AGUARDANDO_CHECAR_STAMINA");
-            botSellRetryCount = 0; botSellLastClickAt = 0;
-            return;
-          }
-          if (botSellPanelOpen()) {
-            const again = botFindSellConfirmButton();
-            if (again && botClick(again)) {
-              botLog("info", `↻ VENDER #${botSellRetryCount + 1}`);
-              botSellLastClickAt = Date.now();
-              botSellRetryCount += 1;
-            }
-          }
+        if (Date.now() - flow.timestamp > 14000) {
+          botLog('error','✗ Loja nao fechou: Play bloqueado por seguranca');
+          botClearFlow('janela de venda permaneceu aberta');
         }
       }
       else if (flow.etapa === "AGUARDANDO_CHECAR_STAMINA") {
@@ -3854,6 +4114,13 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         botExecutarIniciarHuntEAjustarLure()
           .then((ok) => {
             botHuntAsyncRunning = false;
+            if (!botIsPartyLeader() || !ok) {
+              emHuntPriority.active=false;
+              emHuntPriority.stage='ready';
+            } else {
+              emHuntPriority.active=true;
+              emHuntPriority.stage='position';
+            }
             if (ok) {
               botLogAndToast("flow", "✅ Ciclo completo");
               botClearFlow("ciclo completo");
@@ -3864,6 +4131,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           })
           .catch((e) => {
             botHuntAsyncRunning = false;
+            emHuntPriority.active=false;
+            emHuntPriority.stage='ready';
             botLog("error", `✗ ${e?.message || e}`);
             botClearFlow("erro async");
           });
@@ -3884,6 +4153,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     botScreenSig = ""; botScreenSigSince = 0;
     botLastAbortFrom = null; botLastAbortAt = 0;
     botSellRetryCount = 0; botSellLastClickAt = 0;
+    botSaleCloseClickAt = 0; botSaleCloseAttempts = 0; botSaleHiddenSince = 0;
     botSellPendingSuccess = false;
     botPendingIntent.clear();
     botLastWrongCount = -1; botStagnantCycles = 0;
@@ -3898,7 +4168,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   };
   const botKeepActive = () => { if (!BOT_CONFIG.antiInatividadeAtivo || document.readyState === "unloading" || Date.now() - botLastActivity < 5000) return; botLastActivity = Date.now(); const x = Math.max(1, Math.floor(innerWidth / 2)), y = Math.max(1, Math.floor(innerHeight / 2)); const t = document.elementFromPoint(x, y) || document.body; if (!t) return; t.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, view: window, clientX: x, clientY: y })); t.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, view: window, clientX: x, clientY: y })); };
   function botMonitorHunt() {
-    if (!BOT_CONFIG.botAtivo || !botPartyAllowsHunt() || document.visibilityState === "hidden") return;
+    // O lider pode estar em uma aba sem foco: continuar monitorando o ciclo.
+    if (!BOT_CONFIG.botAtivo || !botPartyAllowsHunt()) return;
     if (botHandleConnectionLost()) { botUpdatePanel(); return; }
     if (botHandleInactivity()) { botUpdatePanel(); return; }
     botTrackHuntSession();
@@ -3921,7 +4192,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     }
     botUpdatePanel();
   }
-  function botResumeLoop() { if (!BOT_CONFIG.botAtivo) return; botHandleInactivity(); }
+  function botResumeLoop() {
+    if (!BOT_CONFIG.botAtivo && !window.__emerickPartyGate?.enabled) return;
+    botHandleInactivity();
+  }
   function startBotModule() {
     if (!document.body) return;
     if (!document.querySelector("#stonegy-tm-overlay")) createPanel();
@@ -3949,6 +4223,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     setInterval(botWatchdog, 400);
     setInterval(botResumeLoop, BOT_RESUME_SCAN_MS);
     setInterval(botMonitorHunt, 500);
+    setInterval(botPartyPostHuntTick, 500);
     setInterval(botKeepActive, 120000);
     setInterval(botUpdatePanel, 1000);
     setInterval(() => { if (botSellPanelOpen()) botApplyVisualMarkers(); }, 500);
@@ -3995,7 +4270,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.5",
+    version: "6.2.27",
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
     getFlow: botGetFlow,
@@ -4041,7 +4316,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     lureOptions: botFindLureOptions,
     concluirLure: botFindConcluirLureButton,
     acharH5: botAcharH5,
-    runHuntFlow: () => { botHuntAsyncRunning = true; return botExecutarIniciarHuntEAjustarLure().finally(() => { botHuntAsyncRunning = false; }); },
+    runHuntFlow: () => { botHuntAsyncRunning = true; return botExecutarIniciarHuntEAjustarLure().finally(() => { botHuntAsyncRunning = false; emHuntPriority.active=false; emHuntPriority.stage='ready'; }); },
     runLureOnly: () => botExecutarAjustarLure(),
     clickableAncestor: botFindClickableAncestor,
     click: botClick,
