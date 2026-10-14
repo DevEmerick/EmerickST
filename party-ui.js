@@ -1,4 +1,4 @@
-// EmerickST Party v6.2.21 — interface compacta e confirmacao nativa automatica.
+// EmerickST Party v6.2.23 — lider/membro local, confirmacao e posicao automaticas.
 // Mundo MAIN. Nao executa hunts, nao altera WebSocket nem faz movimentos.
 (() => {
   if (window.__emerickPartyInit) return;
@@ -38,6 +38,13 @@
       .em-party-highlight{color:#aeeacb}
       .em-party [data-party-position]{color:#aeeacb;font-weight:650}
       .em-party-config select[data-party-vocation]{border-color:#675b96}
+      .em-party .em-party-btn.primary{background:#4a3e7c;border-color:#9380db;color:#fff}
+      .em-party .em-party-hunt{width:100%;border:1px solid #4a526b;border-radius:7px;background:#111827;color:#e4e6f4;padding:8px;font:11px system-ui;margin:6px 0}
+      .em-party .em-party-muted{font-size:10px;color:#9daac1}
+      .em-party .em-party-inline{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:5px}
+      .em-party [data-party-role]{display:block;width:100%;font:600 11px system-ui;color:#e8e6fa;background:#141a28;border:1px solid #544e78;border-radius:7px;padding:9px;cursor:pointer}
+      .em-party .em-party-inline{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:7px}
+      .em-party .em-party-compact{font-size:10px;color:#aeb8c9}
     `;
     shadow.appendChild(style);
     const tab = document.createElement('button');
@@ -50,50 +57,36 @@
     view.dataset.partyView = '';
     view.hidden = true;
     view.innerHTML = `
-      <div class="em-party-head">
-        <strong class="em-party-title">♜ Party</strong>
-        <span class="em-party-pill wait" data-party-pill>Desativada</span>
-      </div>
+      <div class="em-party-head"><strong class="em-party-title">♛ Party</strong><span class="em-party-pill wait" data-party-pill>Desligada</span></div>
       <div class="em-party-card">
-        <div class="em-party-line">
-          <div><strong>Party automática</strong><div class="em-party-sub" data-party-state>Ative para conectar seus personagens.</div></div>
-          <button type="button" class="em-party-btn" data-party-toggle>Ativar</button>
-        </div>
+        <label class="em-party-sub" for="emerick-party-role">Função neste personagem</label>
+        <select id="emerick-party-role" data-party-role aria-label="Função"><option value="leader">♛ Líder</option><option value="member">Membro</option></select>
+        <div style="height:9px"></div>
+        <button type="button" class="em-party-btn primary" data-party-toggle style="width:100%">▶ Iniciar Party</button>
+        <div class="em-party-sub" style="margin-top:7px;text-align:center" data-party-state>Party desativada. O modo Solo permanece independente.</div>
       </div>
-      <div data-party-details hidden>
-        <div class="em-party-card">
-          <div class="em-party-line"><strong>Participantes</strong><span class="em-party-status" data-party-count>Aguardando</span></div>
-          <div data-party-members class="em-party-sub">Aguardando conexão...</div>
+      <div class="em-party-card" data-party-hunt-config>
+        <div class="em-party-line"><strong>Hunt</strong><span class="em-party-status" data-party-hunt>Não definida</span></div>
+        <div data-party-leader-options>
+          <input type="text" class="em-party-hunt" data-party-hunt-input maxlength="100" placeholder="Nome da hunt do líder" autocomplete="off" spellcheck="false">
+          <div class="em-party-inline"><span class="em-party-compact">Lure</span><select data-party-lure style="width:90px;background:#141a28;color:#e5e6f4;border:1px solid #454b66;border-radius:6px;padding:6px"><option value="max">MAX</option><option value="off">OFF</option></select></div>
         </div>
-        <div class="em-party-card">
-          <div class="em-party-line"><strong>Hunt da Party</strong><span class="em-party-status" data-party-hunt>Definida pelo líder</span></div>
-          <div class="em-party-sub" style="margin-top:7px">Vocação: <span data-party-vocation-label>não definida</span></div>
-          <div class="em-party-sub" style="margin-top:7px">Posição nesta hunt: <span data-party-position>não configurada</span></div>
-          <div class="em-party-sub" style="margin-top:6px" data-party-pos-notice>Primeira vez: escolha um quadrado no jogo.</div>
-        </div>
-        <div class="em-party-card">
-          <div class="em-party-line"><strong>Confirmação do jogo</strong><span class="em-party-pill wait" data-party-ready>Em espera</span></div>
-          <div class="em-party-sub" style="margin-top:6px" data-party-native>Aguardando janela de prontidão.</div>
-          <div class="em-party-sub" style="margin-top:7px">Ao abrir a confirmação do Stonegy, o bot confirma automaticamente se todos estiverem conectados e identificados.</div>
-        </div>
+        <p class="em-party-sub" data-party-hunt-caption>Somente o líder inicia a hunt, protege e vende o loot.</p>
+      </div>
+      <div class="em-party-card" data-party-details hidden>
+        <div class="em-party-inline"><span class="em-party-compact">Vocação</span><span data-party-vocation-label>não definida</span></div>
+        <div class="em-party-inline"><span class="em-party-compact">Posição nesta hunt</span><span data-party-position>não configurada</span></div>
+        <div class="em-party-sub" style="margin-top:8px" data-party-pos-notice>Primeira vez: escolha sua posição no jogo.</div>
+        <div class="em-party-inline"><span class="em-party-compact">Prontidão</span><span class="em-party-pill wait" data-party-ready>Em espera</span></div>
+        <p class="em-party-sub" data-party-native>Aguardando a janela do Stonegy.</p>
       </div>
       <details data-party-setup>
-        <summary>⚙ Configurar personagens e conexão</summary>
+        <summary>⚙ Personagem e vocação</summary>
         <div class="em-party-config">
-          <label>Meu personagem</label><input data-party-name maxlength="32" placeholder="Ex.: Budas" autocomplete="off">
-          <label>Código da Party (mesmo nas duas janelas)</label><input data-party-room maxlength="24" placeholder="Ex.: EMERICK01" autocomplete="off">
-          <label>Função do personagem</label>
-          <select data-party-role><option value="leader">Líder</option><option value="member">Membro</option></select>
-          <label>Vocação do personagem</label>
-          <select data-party-vocation>
-            <option value="">Selecione a vocação</option>
-            <option value="knight">Knight</option>
-            <option value="sorcerer">Sorcerer</option>
-            <option value="druid">Druid</option>
-            <option value="paladin">Paladin</option>
-            <option value="monk">Monk</option>
-          </select>
-          <p class="em-party-sub">Preencha uma vez em cada janela. Apenas o líder escolhe a hunt no jogo.</p>
+          <label>Nome exato do meu personagem</label><input data-party-name maxlength="32" placeholder="Ex.: Budas" autocomplete="off">
+          <label>Vocação</label><select data-party-vocation><option value="">Selecione</option><option value="knight">Knight</option><option value="sorcerer">Sorcerer</option><option value="druid">Druid</option><option value="paladin">Paladin</option><option value="monk">Monk</option></select>
+          <input type="hidden" data-party-room value="local"><input type="hidden" data-party-leader value="">
+          <p class="em-party-sub">Sem servidor e sem código de Party. O líder utiliza o fluxo completo de caça e venda; o membro apenas confirma e se posiciona.</p>
           <p class="em-party-warn" data-party-error hidden></p>
         </div>
       </details>
@@ -103,17 +96,53 @@
     const el = selector => view.querySelector(selector);
     const name = el('[data-party-name]');
     const room = el('[data-party-room]');
+    const leaderName = el('[data-party-leader]');
+    const partyHuntInput = el('[data-party-hunt-input]');
     const role = el('[data-party-role]');
     const vocation = el('[data-party-vocation]');
     const state = {
       enabled:false, connected:false, wantJoin:false, joined:false,
-      me:'', members:[], error:'', notice:'', leaderHunt:''
+      me:'', members:[], error:'', notice:'', leaderHunt:'', cycleStarted:false, phase:''
     };
+    const partyLure = el('[data-party-lure]');
+    const LURE_MAP_KEY = 'emerickst:party:lure-by-hunt:v1';
     const sent = msg => document.dispatchEvent(new CustomEvent('emerickst-party-out', {detail:msg}));
     const text = (sel, value) => { const node = el(sel); if (node.textContent !== value) node.textContent = value; };
     const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
     // Dados exclusivos de cada personagem, vocacao e hunt.
     // Chrome normal e anonimo mantem localStorage independentes.
+    const PARTY_HUNT_PREFIX = 'emerickst:party:hunt:v1:';
+    const SOLO_SNAPSHOT_KEY = 'emerickst:party:solo-hunt:v1';
+    let partyHunt = '';
+    const huntKey = () => PARTY_HUNT_PREFIX + 'LOCAL';
+    const loadPartyHunt = () => {
+      try { return sessionStorage.getItem(huntKey()) || window.__stonegy?.config?.huntName || ''; }
+      catch (_) { return window.__stonegy?.config?.huntName || ''; }
+    };
+    const restoreSoloHunt = () => {
+      const bot = window.__stonegy;
+      try {
+        const raw = sessionStorage.getItem(SOLO_SNAPSHOT_KEY);
+        if (raw !== null && bot?.config) {
+          let saved;
+          try { saved = JSON.parse(raw); } catch (_) { saved = {huntName:raw}; }
+          bot.config.huntName = String(saved.huntName || '');
+          bot.config.lastHuntName = bot.config.huntName;
+          if (['off','max'].includes(saved.lureModo)) bot.config.lureModo = saved.lureModo;
+          bot.config.botAtivo = false; // voltar ao Solo sempre pausado
+          bot.saveConfig?.();
+        }
+        sessionStorage.removeItem(SOLO_SNAPSHOT_KEY);
+      } catch (_) {}
+    };
+    const snapshotSoloHunt = () => {
+      const cfg = window.__stonegy?.config;
+      try {
+        if (cfg) sessionStorage.setItem(SOLO_SNAPSHOT_KEY, JSON.stringify({
+          huntName:cfg.huntName || '', lureModo:cfg.lureModo || 'max'
+        }));
+      } catch (_) {}
+    };
     const POSITIONS_KEY = 'emerickst:party:positions:v1';
     const VOCATIONS_KEY = 'emerickst:party:vocations:v1';
     const LAST_MOVE_KEY = 'emerickst:party:last-position:v1';
@@ -174,8 +203,9 @@
     // O lider envia o nome aos membros pelo canal local ja existente.
     function huntName() {
       if (!state.enabled || !valid()) return '';
-      if (role.value === 'leader') return nativeHuntName() || (shadow.querySelector('[data-hunt]')?.value || '').trim();
-      return state.joined && state.connected ? (state.leaderHunt || '').trim() : '';
+      if (role.value === 'leader') return nativeHuntName() || partyHunt.trim();
+      // Membro usa a hunt exibida no proprio jogo; nao precisa de outra janela.
+      return nativeHuntName() || '';
     }
     // Estado por entrada na hunt, nao por rerender do React.
     const positioning = {
@@ -325,27 +355,85 @@
         setPositionMessage('Não foi possível abrir Posicionamento.');
       }
     }
-    const valid = () => name.value.trim().length >= 2 && /^[A-Za-z0-9_-]{3,24}$/.test(room.value.trim());
+    // Papel atribuido diretamente pelo usuario, sem dependencia entre navegadores.
+    const valid = () => name.value.trim().length >= 2 && VOCATIONS.has(getVocation(name.value));
     const savedKey = 'emerickst:party:prefs:v1';
     try {
       const saved = JSON.parse(sessionStorage.getItem(savedKey) || '{}');
       name.value = saved.name || '';
-      room.value = saved.room || '';
       role.value = saved.role === 'member' ? 'member' : 'leader';
     } catch (_) {}
     vocation.value = getVocation(name.value);
+    restoreSoloHunt();
+    partyHunt = loadPartyHunt();
+    partyHuntInput.value = partyHunt;
+    const preferredLure = () => {
+      const choice = readMap(LURE_MAP_KEY)[norm(partyHunt)];
+      return choice === 'off' || choice === 'max' ? choice : (window.__stonegy?.config?.lureModo || 'max');
+    };
+    partyLure.value = preferredLure();
     el('[data-party-setup]').open = !valid();
-    const save = () => { try { sessionStorage.setItem(savedKey, JSON.stringify({name:name.value.trim(),room:room.value.trim(),role:role.value})); } catch (_) {} };
-    function join() {
-      if (!state.enabled || !state.connected || !valid()) return;
-      state.wantJoin = true;
-      sent({type:'JOIN',name:name.value.trim(),room:room.value.trim(),role:role.value});
+    const save = () => {
+      try { sessionStorage.setItem(savedKey, JSON.stringify({
+        name:name.value.trim(), role:role.value
+      })); } catch (_) {}
+    };
+    const pauseHuntBot = () => {
+      const bot = window.__stonegy;
+      if (!bot?.config) return;
+      // Membro nao executa o motor; e o stop da Party tambem o pausa.
+      if (bot.config.botAtivo) {
+        bot.config.botAtivo = false;
+        bot.saveConfig?.();
+      }
+      if (bot.getFlow?.()) bot.clearFlow?.();
+    };
+    const setGate = () => {
+      window.__emerickPartyGate = {
+        enabled:state.enabled, isLeader:role.value === 'leader'
+      };
+      return state.enabled && role.value === 'leader';
+    };
+    const stopParty = () => {
+      pauseHuntBot();
+      state.enabled=false; state.cycleStarted=false;
+      state.phase='';state.error='';
+      restoreSoloHunt();
+      setGate();
+    };
+    function tickAutomation() {
+      setGate();
+      if (!state.enabled) return;
+      const bot=window.__stonegy;
+      if (!bot?.config || !bot.startReturn) {
+        state.phase='Aguardando motor Hunt...';return;
+      }
+      if (role.value === 'member') {
+        // Nenhuma venda, treino ou nova hunt executada pelo membro.
+        if (bot.config.botAtivo || bot.getFlow?.()) pauseHuntBot();
+        state.phase = partyInHunt() ? 'Hunt em andamento.' : 'Aguardando a solicitação do líder.';
+        return;
+      }
+      const chosen = partyHunt.trim();
+      if (!chosen) {state.phase='Informe a hunt do líder.';return;}
+      if (!state.cycleStarted) {
+        bot.config.huntName = chosen;
+        bot.config.lastHuntName = chosen;
+        bot.config.lureModo = partyLure.value === 'off' ? 'off' : 'max';
+        bot.saveConfig?.();
+        state.cycleStarted=true;
+        state.phase='Líder executando venda, proteções e hunt.';
+        if (partyInHunt()) {
+          bot.config.botAtivo=true;
+          bot.saveConfig?.();
+        } else {
+          try { bot.startReturn(); }
+          catch(e) {state.cycleStarted=false;state.error=String(e?.message || e);}
+        }
+      } else {
+        state.phase=partyInHunt() ? 'Hunt em andamento.' : 'Ciclo de venda/hunt ativo.';
+      }
     }
-    const allOnline = () => state.enabled && state.connected && state.joined &&
-      state.members.length >= 2 && state.members.every(p => p.online && p.name) &&
-      state.members.filter(p => p.role === 'leader').length === 1 &&
-      state.members.some(p => p.id === state.me);
-
     // Identifica apenas o modal nativo de prontidao, jamais botoes do EmerickST.
     function nativeDialog() {
       const headings = [...document.querySelectorAll('h5')].filter(h =>
@@ -463,129 +551,86 @@
       }
     }
     function render() {
-      const active = state.enabled;
-      el('[data-party-details]').hidden = !active;
-      el('[data-party-toggle]').textContent = active ? 'Desativar' : 'Ativar';
+      const active=state.enabled;
+      el('[data-party-details]').hidden=!active;
+      el('[data-party-toggle]').textContent=active?'■ Parar Party':'▶ Iniciar Party';
       el('[data-party-toggle]').classList.toggle('running',active);
-      el('[data-party-pill]').textContent = !active ? 'Desativada' : allOnline() ? 'Pronta' : 'Aguardando';
-      el('[data-party-pill]').classList.toggle('wait', !allOnline());
-      const status = !active ? 'Ative para conectar seus personagens.' :
-        state.error ? state.error : !state.connected ? 'Conectando à extensão...' :
-        !state.joined ? 'Conectando personagem...' :
-        !allOnline() ? 'Aguardando os demais personagens.' : 'Todos online. Confirmação automática ativa.';
-      text('[data-party-state]',status);
-      text('[data-party-count]', `${state.members.filter(p=>p.online).length}/${state.members.length} conectados`);
-      const members = el('[data-party-members]');
-      members.replaceChildren();
-      for (const person of state.members) {
-        const row = document.createElement('div');
-        row.className='em-party-member';
-        const label = document.createElement('span');
-        label.textContent = `${person.role === 'leader' ? '♛ ' : '• '}${person.name}${person.id === state.me ? ' (você)' : ''}`;
-        const status = document.createElement('span');
-        status.className = 'em-party-pill' + (person.online ? '' : ' wait');
-        status.textContent = person.online ? 'Online' : 'Ausente';
-        row.append(label,status);
-        members.appendChild(row);
-      }
-      if (!state.members.length) members.textContent='Nenhum participante conectado.';
-      const me = state.members.find(p => p.id === state.me);
-      const currentHunt = huntName();
-      text('[data-party-hunt]',currentHunt || 'Definida pelo líder');
-      text('[data-party-vocation-label]',getVocation(name.value)
-        ? getVocation(name.value).replace(/^./,c=>c.toUpperCase()) : 'não definida');
-      const record = getPosition(currentHunt);
-      text('[data-party-position]',!currentHunt ? 'aguardando hunt'
-        : record ? `${record.x},${record.y}` : 'não configurada');
-      el('[data-party-error]').hidden = !state.error;
+      text('[data-party-pill]',!active?'Desligada':role.value==='leader'?'Líder ativo':'Membro ativo');
+      el('[data-party-pill]').classList.toggle('wait',!active);
+      text('[data-party-state]',!active?'Modo Solo disponível na aba Hunt.':(state.error||state.phase||'Ativo.'));
+      const leader = role.value==='leader';
+      el('[data-party-leader-options]').hidden=!leader;
+      text('[data-party-hunt]',huntName() || (leader?partyHunt:'Aguardando o jogo'));
+      text('[data-party-hunt-caption]',leader
+        ? 'Líder: venda e proteção de itens mantidas. Sem treino.'
+        : 'Membro: só confirma e assume a posição. Não vende nem treina.');
+      if (leader && shadow.activeElement!==partyHuntInput && partyHuntInput.value!==partyHunt) partyHuntInput.value=partyHunt;
+      text('[data-party-vocation-label]',getVocation(name.value)||'não definida');
+      const currentHunt=huntName();
+      const saved=currentHunt?getPosition(currentHunt):null;
+      text('[data-party-position]',!currentHunt?'aguardando hunt':saved?`${saved.x},${saved.y}`:'não configurada');
+      el('[data-party-error]').hidden=!state.error;
       text('[data-party-error]',state.error);
     }
-    name.addEventListener('change',() => {
+    partyHuntInput.addEventListener('change',()=>{
+      if (role.value!=='leader') return;
+      const next=partyHuntInput.value.trim();
+      if (state.enabled && next!==partyHunt) {
+        state.error='Pare a Party antes de trocar a hunt.';
+        partyHuntInput.value=partyHunt;
+        render();return;
+      }
+      partyHunt=next;
+      try {sessionStorage.setItem(huntKey(),partyHunt);}catch(_){}
+      partyLure.value=preferredLure();
+      state.error='';render();
+    });
+    partyHuntInput.addEventListener('keydown',e=>{if(e.key==='Enter')partyHuntInput.blur();});
+    partyLure.addEventListener('change',()=>{
+      if (state.enabled) {partyLure.value=preferredLure();return;}
+      const values=readMap(LURE_MAP_KEY);
+      values[norm(partyHunt)]=partyLure.value==='off'?'off':'max';
+      writeMap(LURE_MAP_KEY,values);
+    });
+    name.addEventListener('change',()=>{
       vocation.value=getVocation(name.value);
-      render();
+      if (state.enabled) stopParty();
+      save();render();
     });
-    vocation.addEventListener('change',() => {
-      if (!saveVocation()) {
-        state.error='Informe o personagem e escolha uma vocação válida.';
-      } else {
-        state.error='';
-        positioning.hunt='';positioning.opened=false;
-      }
-      render();
+    vocation.addEventListener('change',()=>{
+      if (state.enabled) stopParty();
+      if(!saveVocation()) state.error='Informe nome e vocação.';
+      else state.error='';
+      save();render();
     });
-    for (const input of [name,room,role]) {
-      const changed = () => {
-        save();
-        if (state.enabled) {
-          state.enabled=false; state.wantJoin=false; state.joined=false; state.members=[];
-          state.error='Configuração alterada. Ative novamente para reconectar.';
-          if (state.connected) sent({type:'LEAVE'});
-          render();
-        }
-      };
-      input.addEventListener('change',changed);
-      input.addEventListener('input',changed);
-    }
-    el('[data-party-toggle]').onclick = () => {
-      if (state.enabled) {
-        state.enabled = false;
-        state.wantJoin = false;
-        if (state.connected) sent({type:'LEAVE'});
-        state.joined = false;
-        state.members = [];
-        state.error = '';
-        render();
-        return;
-      }
+    role.addEventListener('change',()=>{
+      if (state.enabled) stopParty();
+      save();render();
+    });
+    el('[data-party-toggle]').onclick=()=>{
+      if (state.enabled) {stopParty();render();return;}
       if (!valid()) {
-        state.error='Preencha nome, código da Party e função antes de ativar.';
-        el('[data-party-setup]').open = true;
-        render();
-        return;
+        state.error='Informe nome do personagem e vocação nas configurações.';
+        el('[data-party-setup]').open=true;render();return;
       }
-      save();
-      state.error='';
-      state.enabled = true;
-      el('[data-party-setup]').open = false;
-      join();
-      render();
+      if (role.value==='leader' && !partyHunt.trim()) {
+        state.error='Informe a hunt na Party.';render();return;
+      }
+      const bot=window.__stonegy;
+      if (bot?.isTrainingRunning?.() || bot?.isAsyncRunning?.()) {
+        state.error='Aguarde a ação Solo terminar antes de iniciar Party.';
+        render();return;
+      }
+      snapshotSoloHunt();
+      pauseHuntBot();
+      state.enabled=true;state.cycleStarted=false;state.error='';
+      save();setGate();
+      el('[data-party-setup]').open=false;
+      tickAutomation();render();
     };
-    document.addEventListener('emerickst-party-in',event => {
-      const m=event.detail;
-      if (!m || typeof m !== 'object') return;
-      if (m.type === 'CONNECTED') {
-        state.connected=true; positioning.lastBroadcast='';
-        if (state.enabled) join();
-      } else if (m.type === 'DISCONNECTED') {
-        state.connected=false; state.joined=false; state.members=[]; state.leaderHunt='';
-      } else if (m.type === 'LEFT') {
-        state.joined=false; state.members=[]; state.leaderHunt='';
-      } else if (m.type === 'ERROR') {
-        state.error=String(m.message || 'Falha de conexão').slice(0,140);
-        state.wantJoin=false;
-      } else if (m.type === 'SNAPSHOT') {
-        state.me=m.you;
-        state.members=Array.isArray(m.members) ? m.members : [];
-        state.joined=state.members.some(p=>p.id===state.me);
-        state.leaderHunt=state.joined && typeof m.hunt === 'string' ? m.hunt.slice(0,100) : '';
-        state.error='';
-      }
-      render();
-    });
-    setInterval(() => {if (state.enabled) {pollNative(); pollPositioning();}},550);
-    setInterval(() => {
-      if (state.enabled && state.joined && state.connected) {
-        if (role.value==='leader') {
-          const chosen=huntName().slice(0,100);
-          if (positioning.lastBroadcast!==chosen) {
-            positioning.lastBroadcast=chosen;
-            sent({type:'HUNT',hunt:chosen});
-          }
-        }
-        sent({type:'PING'});
-      }
-      if (state.enabled && state.joined) render();
-    },3000);
+    // Sem sincronizacao: cada instancia possui apenas o papel escolhido.
+    setInterval(()=>{if(state.enabled){pollNative();pollPositioning();}},550);
+    setInterval(()=>{tickAutomation();if(state.enabled)render();},1000);
     function sync() {
       const active=tab.classList.contains('active');
       const settings=shadow.querySelector('[data-settings-view]');
@@ -597,6 +642,5 @@
     if (settings) observer.observe(settings,{attributes:true,attributeFilter:['hidden']});
     tabs.addEventListener('click',()=>queueMicrotask(sync));
     sync();render();
-    sent({type:'HELLO'});
   };
 })();
