@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.52
+// // @version      6.2.55
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -1227,8 +1227,23 @@
     if (!botClick(conf)) {botLog('error','✗ Clique em Iniciar Hunt falhou');return false;}
     botLog("success", "✓ Iniciar");
     // Na Party aguarda a confirmacao dos participantes pelo jogo.
-    const comecou = await botEsperarAte(() => botInHunt(), botIsPartyLeader() ? 60000 : 6000);
-    if (!comecou) { botLog("error", "✗ Hunt não iniciou"); return false; }
+    // Party: contar apenas tentativas com prontidao observada.
+    // Sem janela ou com perda de conexao, nao presumir cancelamento.
+    let partyReadyObserved = false;
+    const comecou = await botEsperarAte(() => {
+      if (botIsPartyLeader() && !partyReadyObserved) {
+        partyReadyObserved = [...document.querySelectorAll('h5')].some(h =>
+          !h.closest('#stonegy-tm-overlay') && botVisible(h) &&
+          botNormalize(h.textContent) === 'CONFIRMACAO DE PRONTIDAO');
+      }
+      return botInHunt();
+    }, botIsPartyLeader() ? 60000 : 6000);
+    if (!comecou) {
+      if (partyReadyObserved && !botFindConnectionLostPanel())
+        window.__emerickPartyGate?.onInviteFailed?.();
+      botLog("error", "✗ Hunt não iniciou"); return false;
+    }
+    if (botIsPartyLeader()) window.__emerickPartyGate?.onInviteStarted?.();
     botLogAndToast("flow", "✓ Em hunt");
     if (botIsPartyLeader()) {
       // Party: o posicionamento vem antes do Lure.
@@ -4311,9 +4326,15 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         if (afk.enabled && afk.levelTransition?.state==='selling') {
           afk.levelTransition=null; afkPersist();
         }
-        // Em Party nao existe treinamento; preserva o fluxo original no Solo.
+        // Stamina individual da Party.
+        // O treinamento pertence ao controlador da Party.
         if (botIsPartyLeader()) {
-          botLog("flow", "♛ Party · sem treinamento · iniciar hunt");
+          const st=botReadStamina();
+          const threshold=Number(window.__emerickPartyGate?.minStaminaHours);
+          if (st!==null && Number.isFinite(threshold) && st<=threshold) {
+            window.__emerickPartyGate?.requestTraining?.('stamina');
+            return;
+          }
           botSetFlow("AGUARDANDO_INICIAR_HUNT");
           return;
         }
@@ -4545,10 +4566,11 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   const afkHuntFor = name => {
     const p=afkProfile(name), rows=afkHunts(p);
     if (!afkValidHunts(p)) return null;
-    // Uma so Hunt nao depende de level: compatibilidade com modo legado.
-    const level=rows.length===1 ? (afkLevel(name)??Number(rows[0].minLevel)) : afkLevel(name);
-    if (level===null) return null;
-    const index=rows.findLastIndex(row=>level>=Number(row.minLevel));
+    // Primeira Hunt = padrao. So as Hunts seguintes possuem desbloqueio por level.
+    // Uma Hunt funciona inclusive se o level ainda nao estiver disponivel.
+    const level=afkLevel(name);
+    const index=rows.length===1 ? 0 : level===null ? -1
+      : Math.max(0,rows.findLastIndex(row=>level>=Number(row.minLevel)));
     if (index<0) return null;
     return {hunt:String(rows[index].hunt||'').trim(),lure:rows[index].lure==='off'?'off':'max',
       minLevel:Number(rows[index].minLevel),index,level};
@@ -4772,6 +4794,56 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     afkSay(reason, 'warn');
     botUpdatePanel();
   };
+  // Recuperacao excepcional de identidade.
+  // Nunca trocar enquanto existe Hunt, Training, venda ou fluxo em andamento.
+  const afkBeginRecovery = reason => {
+    if (botFindConnectionLostPanel() || botInHunt() || botTreinando() ||
+        botHuntAsyncRunning || botTrainingAsyncRunning || botBusy ||
+        botGetFlow() || window.__emerickPartyGate?.enabled) {
+      afkSay('Identidade duvidosa durante atividade. Nao vou trocar personagem automaticamente. Pare as atividades e confira a entrada.', 'warn');
+      return;
+    }
+
+    if (!afkSelectionRoot() && !botFindPlayButton() &&
+        !botFindGameModePanel()) {
+      afkSay('Nao foi encontrada uma tela segura para recuperar a selecao.', 'warn');
+      return;
+    }
+
+    const order=afkSequence();
+    if (!order.length) {
+      afkSay('Nenhum personagem habilitado para recuperar.', 'warn');
+      return;
+    }
+
+    // Preservar configuracoes Solo para eventual cancelamento.
+    afk.solo={
+      hunt:BOT_CONFIG.huntName,
+      lure:BOT_CONFIG.lureModo,
+      stamina:BOT_CONFIG.minStaminaHours
+    };
+
+    afk.enabled=true;
+    afk.phase='recovery';
+    afk.stage='menu';
+    afk.target=order[0];
+    afk.pendingLogin=null;
+    afk.since=Date.now();
+    afk.lastAction=0;
+    afk.attempt=0;
+    afk.entryAttempts=0;
+    afk.selectedVerified=false;
+    afk.selectedAt=0;
+    afk.selectionAttempts=0;
+    afk.selectionScreenSeen=false;
+    afk.listWaitingSince=0;
+
+    BOT_CONFIG.botAtivo=false;
+    botSaveConfig();
+
+    afkSay(`Conferencia necessaria (${reason}). Abrindo a lista uma vez para iniciar por ${afk.target}.`, 'warn');
+  };
+
   const afkStart = () => {
     // Iniciar AFK e um comando autonomo: nunca depende do botao Hunt.
     if (window.__emerickPartyGate?.enabled) {
@@ -4781,12 +4853,47 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     if (!sequence.length) {
       afkSay('Marque os personagens na Ordem de execução antes de iniciar.', 'warn'); return;
     }
-    if (!afk.current?.trim()) {
-      afkSay('Personagem ainda nao detectado. Entre no mundo pelo Stonegy para confirmar automaticamente.', 'warn'); return;
+    // Usar a identidade nativa do jogo quando ela estiver disponivel.
+    // Nunca exigir que o primeiro da fila seja o personagem logado.
+    const live=afkLiveIdentity();
+    const inWorld=!afkSelectionRoot() && !afkFindEnterWorld() &&
+      Boolean(botFindPlayButton() || botFindGameModePanel() ||
+        botInHunt() || botTreinando());
+
+    if (live && inWorld && !afk.pendingLogin) {
+      const match=afkProfiles.roster.filter(x=>
+        afkNorm(x.name)===afkNorm(live.name));
+
+      if (match.length!==1) {
+        afkSay(`Personagem ${live.name} nao consta na lista reconhecida. Nao vou trocar nem iniciar outra Hunt.`, 'warn');
+        return;
+      }
+
+      if (afkNorm(match[0].vocation)!==afkNorm(live.vocation)) {
+        afkBeginRecovery('vocacao nativa diverge do cadastro');
+        return;
+      }
+
+      afk.current=match[0].name;
+      afk.currentVocation=live.vocation;
+      afk.detectedSource='entrada confirmada pelo perfil nativo';
+      afk.detectedAt=Date.now();
+      afkPersist();
+
+    } else if (!afk.current?.trim() || afk.pendingLogin ||
+               !String(afk.detectedSource||'').startsWith('entrada')) {
+      afkBeginRecovery('personagem atual ainda nao confirmado');
+      return;
     }
-    if (afkNorm(sequence[0])!==afkNorm(afk.current)) {
-      afkSay(`A fila começa por ${sequence[0]}. Entre com esse personagem no Stonegy antes de iniciar.`, 'warn'); return;
+
+    const startingAt=sequence.findIndex(n=>
+      afkNorm(n)===afkNorm(afk.current));
+
+    if (startingAt<0) {
+      afkSay(`O personagem ${afk.current} nao esta marcado na fila. Escolha um habilitado antes de iniciar.`, 'warn');
+      return;
     }
+
     const profile=afkProfile(afk.current);
     if (!afkHuntFor(afk.current)?.hunt) {
       const rows=afkHunts(profile);
@@ -4860,7 +4967,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     afkSay(`Treino ativo. Trocando ${afk.current} → ${target}.`);
   };
   // Diferentemente da função Solo, esta rotina NÃO espera horas e NÃO finaliza treino.
-  async function afkBeginTraining() {
+  async function afkBeginTraining(skillOverride = null) {
     if (botTreinando()) return true;
     if (botInHunt()) {afkSay('Aguardando o jogo encerrar a hunt.');return false;}
     let mode=botFindGameModePanel();
@@ -4879,7 +4986,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     const own=afkProfile(afk.current);
     const profession=afkProfiles.roster.find(c=>afkNorm(c.name)===afkNorm(afk.current))?.vocation?.toLowerCase()||'';
     const autoSkill={monk:'Fist',paladin:'Distance',sorcerer:'Magic',druid:'Magic'}[profession];
-    const desired=own?.skill && own.skill!=='auto' ? own.skill : autoSkill;
+    // Sem override, AFK mantem sua selecao anterior.
+    const desired=skillOverride || (own?.skill && own.skill!=='auto' ? own.skill : autoSkill);
     if (!desired) {
       afkSay(`Selecione SKILL TREINO para ${afk.current} (${profession||'vocação desconhecida'}).`, 'warn');
       return false;
@@ -4971,7 +5079,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   const afkAutoIdentityTick = () => {
     // O motor de troca ja confirma o proprio destino na funcao afkDriveSwap.
     // Nao sobrescrever afk.current durante a navegacao automatica.
-    if (afk.enabled && afk.phase==='switch') return;
+    if (afk.enabled && (afk.phase==='switch' ||
+        afk.phase==='recovery')) return;
     const now=Date.now();
     const cards=afkFindCards();
     if (cards.length>=2) {
@@ -5037,6 +5146,209 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     // Ao contrario de botClick(), nao sobe na hierarquia ate outro cursor:pointer.
     try {node.click(); return true;} catch (_) {return false;}
   };
+  // Recuperacao separada: a funcao original de troca fica intacta.
+  const afkDriveRecovery = () => {
+    if (!afk.enabled || afk.phase!=='recovery') return;
+
+    const now=Date.now();
+    const target=afk.target;
+    const order=afkSequence();
+
+    if (!target || afkNorm(order[0])!==afkNorm(target)) {
+      afkStop('Fila alterada durante a recuperacao; AFK pausado.');
+      return;
+    }
+
+    if (now-afk.since>90000) {
+      afkStop('Recuperacao atingiu 90 segundos. AFK pausado, sem repeticao.');
+      return;
+    }
+
+    if (botFindConnectionLostPanel() || botInHunt() ||
+        botTreinando() || botHuntAsyncRunning ||
+        botTrainingAsyncRunning || botBusy || botGetFlow()) {
+      afkStop('Atividade inesperada durante a recuperacao. AFK pausado.');
+      return;
+    }
+
+    const cards=afkFindCards();
+    const world=afkFindEnterWorld();
+
+    if (cards.length>=2) {
+      const candidates=cards.filter(c=>
+        afkNorm(c.name)===afkNorm(target));
+
+      if (candidates.length!==1) {
+        afkStop('Personagem alvo ausente ou duplicado na lista.');
+        return;
+      }
+
+      const selected=afkSelectedCard(cards);
+
+      if (afk.stage==='verify') {
+        if (now-afk.lastAction<6000) return;
+
+        afk.entryAttempts=(afk.entryAttempts||0)+1;
+        if (afk.entryAttempts>2) {
+          afkStop('ENTRAR NO MUNDO nao abriu o jogo na recuperacao.');
+          return;
+        }
+
+        afk.selectedVerified=false;
+        afk.selectedAt=0;
+        afk.stage='selection';
+        afk.lastAction=0;
+
+        afkSay(`Lista ainda aberta; conferindo novamente o cartao ${target}.`);
+        return;
+      }
+
+      if (selected && afkNorm(selected.name)===afkNorm(target)) {
+        if (!afk.selectedVerified) {
+          afk.selectedVerified=true;
+          afk.selectedAt=now;
+          afk.stage='entry';
+
+          afkSay(`Recuperacao: ${target} selecionado. Verificando estabilidade.`);
+          return;
+        }
+
+        if (now-afk.selectedAt<900) return;
+
+        if (!world) {
+          if (now-afk.selectedAt>15000)
+            afkStop('ENTRAR NO MUNDO nao apareceu na recuperacao.');
+          return;
+        }
+
+        if (now-afk.lastAction<1100) return;
+
+        if (!afkNativeClick(world)) {
+          afkStop('Falha ao entrar no mundo apos recuperacao.');
+          return;
+        }
+
+        afk.stage='verify';
+        afk.lastAction=now;
+        afkSay(`Recuperacao: entrando no mundo com ${target}.`);
+        afkPersist();
+        return;
+      }
+
+      afk.selectedVerified=false;
+      afk.selectedAt=0;
+
+      if (now-afk.lastAction<2400) return;
+
+      if ((afk.selectionAttempts||0)>=3) {
+        afkStop(`Nao foi possivel selecionar ${target} em tres cliques.`);
+        return;
+      }
+
+      if (!afkClickTargetCard(candidates[0],target)) {
+        afkStop('Falha ao clicar no cartao exato de '+target);
+        return;
+      }
+
+      afk.stage='selection';
+      afk.selectionAttempts=(afk.selectionAttempts||0)+1;
+      afk.lastAction=now;
+
+      afkSay(`Recuperacao: selecionando ${target} (${afk.selectionAttempts}/3).`);
+      afkPersist();
+      return;
+    }
+
+    if (afk.stage==='verify') {
+      if (now-afk.lastAction<1600) return;
+
+      if (!(botFindPlayButton() || botFindGameModePanel() ||
+            botInHunt() || botTreinando())) {
+        if (now-afk.lastAction>15000)
+          afkStop('Mundo nao confirmou a entrada; AFK pausado.');
+        return;
+      }
+
+      if (!afk.selectedVerified) {
+        afkStop('Entrada nao validada; AFK pausado.');
+        return;
+      }
+
+      const native=afkLiveIdentity();
+      if (native && afkNorm(native.name)!==afkNorm(target)) {
+        afkStop('Perfil no jogo nao corresponde ao selecionado; AFK pausado.');
+        return;
+      }
+
+      // Entrada confirmada. Reiniciar usando o AFK original.
+      afk.current=target;
+      afk.currentVocation=afkVocation(target);
+      afk.detectedSource='entrada apos selecionar cartao';
+      afk.detectedAt=now;
+      afk.pendingLogin=null;
+      afk.enabled=false;
+      afk.phase='idle';
+      afk.stage='';
+      afk.target='';
+      afk.selectionAttempts=0;
+      afk.selectedVerified=false;
+      afk.selectedAt=0;
+
+      afkSay(`Identidade recuperada: ${target}. Iniciando a rotacao existente.`, 'success');
+      afkStart();
+      return;
+    }
+
+    if (afk.stage==='wait-list') {
+      if (now-afk.lastAction>20000)
+        afkStop('A lista nao apareceu apos TROCAR PERSONAGEM. AFK pausado.');
+      return;
+    }
+
+    if (afk.stage==='selection' || afk.stage==='entry' ||
+        afk.selectionScreenSeen) {
+      if (!afk.listWaitingSince)
+        afk.listWaitingSince=now;
+
+      if (now-afk.listWaitingSince>15000)
+        afkStop('Lista desapareceu antes de confirmar entrada. AFK pausado.');
+      return;
+    }
+
+    if (now-afk.lastAction<1600) return;
+
+    if (afk.attempt>=3) {
+      afkStop('Nao foi possivel abrir TROCAR PERSONAGEM.');
+      return;
+    }
+
+    const option=afkFindSwitchMenuOption();
+
+    if (option) {
+      if (!afkNativeClick(option)) {
+        afkStop('Falha ao clicar TROCAR PERSONAGEM.');
+        return;
+      }
+
+      afk.stage='wait-list';
+      afk.selectionScreenSeen=true;
+      afkSay(`Recuperacao: abrindo lista para selecionar ${target}.`);
+    } else {
+      const gear=afkFindGear();
+
+      if (!gear || !afkNativeClick(gear)) {
+        afkStop('Engrenagem nativa indisponivel; sem trocar personagem.');
+        return;
+      }
+
+      afkSay('Recuperacao: abrindo menu nativo do jogo.');
+    }
+
+    afk.lastAction=now;
+    afk.attempt++;
+    afkPersist();
+  };
+
   const afkDriveSwap = () => {
     if (!afk.enabled || afk.phase!=='switch') return;
     const now=Date.now();
@@ -5149,6 +5461,19 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     afkScanRoster();
     if (!afk.enabled) return;
     if (window.__emerickPartyGate?.enabled) {afkStop('Party ativada; AFK interrompido.');return;}
+
+    if (afk.phase==='recovery') {
+      if (!afkBusy) {
+        try {
+          afkDriveRecovery();
+        } catch(error) {
+          afkStop('Erro na recuperacao: '+
+            String(error?.message||error).slice(0,140));
+        }
+      }
+      return;
+    }
+
     if (afk.phase==='switch') {
       if (!afkBusy) {
         try { afkDriveSwap(); }
@@ -5390,7 +5715,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         if (index===0) {remove.disabled=true;remove.style.visibility='hidden';}
         line.append(min,hunt,lure,remove);
         const note=document.createElement('small');note.className='afk-level-range';
-        note.textContent=index===rows.length-1 ? `Level ${r.minLevel}+` : `Level ${r.minLevel}–${Number(rows[index+1].minLevel)-1}`;
+        note.textContent=rows.length===1 ? 'Hunt unica · qualquer level'
+          : index===0 ? `Hunt padrao · ate level ${Number(rows[1].minLevel)-1}`
+          : index===rows.length-1 ? `Level ${r.minLevel}+`
+          : `Level ${r.minLevel}–${Number(rows[index+1].minLevel)-1}`;
         return [line,note];
       }));
       rowsNode.dataset.signature=sig;
@@ -5606,7 +5934,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.52",
+    version: "6.2.55",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
@@ -5633,6 +5961,17 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     finalizarTreinoButton: botFindFinalizarTreinoButton,
     isTraining: botTreinando,
     runTraining: () => { botTrainingAsyncRunning = true; return botExecutarTreino().finally(() => { botTrainingAsyncRunning = false; botTrainingStartedAt = 0; botTrainingTotalMs = 0; }); },
+    // Exclusivo da Party: inicia e confirma, sem finalizar o treino.
+    beginPartyTraining: async (skill) => {
+      const gate=window.__emerickPartyGate;
+      if (!gate?.enabled || !gate.closing || afk.enabled || botInHunt() ||
+          botFindConnectionLostPanel() || botHuntAsyncRunning ||
+          botTrainingAsyncRunning || BOT_CONFIG.botAtivo || botGetFlow()) return false;
+      if (!['Fist','Distance','Magic','Sword','Axe','Club'].includes(skill)) return false;
+      botTrainingAsyncRunning=true;
+      try { return await afkBeginTraining(skill); }
+      finally { botTrainingAsyncRunning=false; }
+    },
     connectionLostPanel: botFindConnectionLostPanel,
     reloadButton: botFindReloadButton,
     isConnLost: () => botConnLostActive,

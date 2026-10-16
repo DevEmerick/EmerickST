@@ -73,16 +73,23 @@
         </div>
         <p class="em-party-sub" data-party-hunt-caption>Somente o líder inicia a hunt, protege e vende o loot.</p>
       </div>
+      <div class="em-party-card">
+        <div class="em-party-line"><strong>Treinamento automático</strong><span class="em-party-muted">Individual</span></div>
+        <div class="em-party-inline"><span class="em-party-compact">Stamina mínima</span><select data-party-stamina style="width:100px;background:#141a28;color:#e5e6f4;border:1px solid #454b66;border-radius:6px;padding:6px">${Array.from({length:13},(_,i)=>`<option value="${i}">${i}h</option>`).join('')}</select></div>
+        <div class="em-party-inline" data-party-wait-row><span class="em-party-compact">Sem convite</span><select data-party-wait style="width:100px;background:#141a28;color:#e5e6f4;border:1px solid #454b66;border-radius:6px;padding:6px"><option value="3">3 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option></select></div>
+        <div class="em-party-inline" data-party-knight-row hidden><span class="em-party-compact">Treino Knight</span><select data-party-knight-skill style="width:100px;background:#141a28;color:#e5e6f4;border:1px solid #454b66;border-radius:6px;padding:6px"><option value="">Escolher</option><option value="Sword">Sword</option><option value="Axe">Axe</option><option value="Club">Club</option></select></div>
+      </div>
       <div class="em-party-card" data-party-details hidden>
-        <div class="em-party-inline"><span class="em-party-compact">Vocação</span><span data-party-vocation-label>não definida</span></div>
+        <div class="em-party-inline" hidden><span class="em-party-compact">Vocação</span><span data-party-vocation-label>não definida</span></div>
         <div class="em-party-inline"><span class="em-party-compact">Posição nesta hunt</span><span data-party-position>não configurada</span></div>
         <div class="em-party-sub" style="margin-top:8px" data-party-pos-notice>Primeira vez: escolha sua posição no jogo.</div>
         <div class="em-party-inline"><span class="em-party-compact">Prontidão</span><span class="em-party-pill wait" data-party-ready>Em espera</span></div>
         <p class="em-party-sub" data-party-native>Aguardando a janela do Stonegy.</p>
       </div>
-      <details data-party-setup>
-        <summary>⚙ Personagem e vocação</summary>
+      <details data-party-setup hidden>
+        <summary>⚙ Identificação manual</summary>
         <div class="em-party-config">
+          <p class="em-party-sub" data-party-auto-status>Identificando personagem no jogo...</p>
           <label>Nome exato do meu personagem</label><input data-party-name maxlength="32" placeholder="Ex.: Budas" autocomplete="off">
           <label>Vocação</label><select data-party-vocation><option value="">Selecione</option><option value="knight">Knight</option><option value="sorcerer">Sorcerer</option><option value="druid">Druid</option><option value="paladin">Paladin</option><option value="monk">Monk</option></select>
           <input type="hidden" data-party-room value="local"><input type="hidden" data-party-leader value="">
@@ -105,6 +112,38 @@
       me:'', members:[], error:'', notice:'', leaderHunt:'', cycleStarted:false, phase:'', lastKickAt:0
     };
     const partyLure = el('[data-party-lure]');
+    const staminaInput=el('[data-party-stamina]');
+    const waitInput=el('[data-party-wait]');
+    const knightInput=el('[data-party-knight-skill]');
+    const TRAIN_PREFS_KEY='emerickst:party:training:v1';
+    const WAIT_MS=60000;
+    const closing={active:false,running:false,blocked:false,reason:'',idleSince:0,
+      failedInvites:0,retryAt:0};
+    let loadedTrainingFor='';
+    function trainPrefs() {
+      const key=norm(name.value);
+      const saved=readMap(TRAIN_PREFS_KEY)[key] || {};
+      return {min:Number.isInteger(saved.min)&&saved.min>=0&&saved.min<=12?saved.min:1,
+        wait:[3,5,10,15].includes(saved.wait)?saved.wait:5,
+        knight:['Sword','Axe','Club'].includes(saved.knight)?saved.knight:''};
+    }
+    function loadTrainPrefs() {
+      const key=norm(name.value);
+      if (key===loadedTrainingFor) return;
+      loadedTrainingFor=key;
+      const p=trainPrefs();
+      staminaInput.value=String(p.min);
+      waitInput.value=String(p.wait);
+      knightInput.value=p.knight;
+    }
+    function saveTrainPrefs() {
+      const key=norm(name.value);if(!key)return;
+      const data=readMap(TRAIN_PREFS_KEY);
+      data[key]={min:Number(staminaInput.value),wait:Number(waitInput.value),knight:knightInput.value};
+      writeMap(TRAIN_PREFS_KEY,data);
+      if (closing.blocked && closing.active) {closing.blocked=false;closing.retryAt=0;}
+    }
+    [staminaInput,waitInput,knightInput].forEach(input=>input.addEventListener('change',saveTrainPrefs));
     const LURE_MAP_KEY = 'emerickst:party:lure-by-hunt:v1';
     const sent = msg => document.dispatchEvent(new CustomEvent('emerickst-party-out', {detail:msg}));
     const text = (sel, value) => { const node = el(sel); if (node.textContent !== value) node.textContent = value; };
@@ -444,8 +483,11 @@
       role.value = saved.role === 'member' ? 'member' : 'leader';
       // Recupera Party apos o proprio jogo recarregar por perda de conexao.
       state.enabled = saved.active === true;
+      closing.active = state.enabled && saved.closing === true;
+      closing.reason = closing.active ? 'Recuperando encerramento anterior' : '';
     } catch (_) {}
     vocation.value = getVocation(name.value);
+    loadTrainPrefs();
     // Identidade desta aba para Dashboard de dano individual.
     window.__emerickLocalCharacterName = name.value.trim();
     // So restaura o snapshot Solo se a Party estava desligada.
@@ -457,11 +499,13 @@
       return choice === 'off' || choice === 'max' ? choice : (window.__stonegy?.config?.lureModo || 'max');
     };
     partyLure.value = preferredLure();
-    el('[data-party-setup]').open = !valid();
+    // So abrir a edicao manual se a identidade automatica falhar.
+    el('[data-party-setup]').open = false;
     const save = () => {
       window.__emerickLocalCharacterName=name.value.trim();
       try { sessionStorage.setItem(savedKey, JSON.stringify({
-        name:name.value.trim(), role:role.value, active:state.enabled
+        name:name.value.trim(), role:role.value, active:state.enabled,
+        closing:closing.active
       })); } catch (_) {}
     };
     const pauseHuntBot = () => {
@@ -511,17 +555,77 @@
         isLeader:leader,
         readyPending:waitingReady,
         positionPending:Boolean(game && (leader ? leaderPending : !positioning.applied)),
+        closing:closing.active,
+        minStaminaHours:Number(staminaInput.value),
+        requestTraining:(reason)=>beginPartyTraining(reason),
+        onInviteFailed:()=>{
+          if (!state.enabled || !leader || closing.active || partyInHunt()) return;
+          closing.failedInvites++;
+          if (closing.failedInvites>=2) beginPartyTraining('2 convites sem inicio de Hunt');
+          else state.phase='Prontidao sem Hunt (1/2). Tentando novamente.';
+        },
+        onInviteStarted:()=>{closing.failedInvites=0;closing.idleSince=0;},
       };
       return state.enabled && leader;
     };
     const stopParty = () => {
       pauseHuntBot();
       state.enabled=false; state.cycleStarted=false;
+      closing.active=false;closing.running=false;closing.blocked=false;
+      closing.reason='';closing.idleSince=0;closing.failedInvites=0;
       state.phase='';state.error='';
       restoreSoloHunt();
       setGate();
       save(); // se o jogo recarregar depois de parar, nao reativar a Party
     };
+    function beginPartyTraining(reason) {
+      if (!state.enabled || closing.active || partyInHunt()) return;
+      closing.active=true;closing.reason=reason;closing.blocked=false;
+      closing.idleSince=0;
+      state.phase='Indo treinar: '+reason;
+      pauseHuntBot();
+      save();setGate();
+    }
+    function trainingSkill() {
+      const profession=getVocation(name.value);
+      if (profession==='knight') return knightInput.value;
+      return {monk:'Fist',paladin:'Distance',sorcerer:'Magic',druid:'Magic'}[profession]||'';
+    }
+    function runPartyTraining(bot) {
+      if (!closing.active || !state.enabled) return;
+      pauseHuntBot();
+      if (closing.blocked) return;
+      state.phase='Indo treinar: '+closing.reason;
+      if (partyInHunt() || nativeDialog() || bot?.isConnLost?.() ||
+          bot?.isAsyncRunning?.() || bot?.isTrainingRunning?.()) return;
+      if (bot?.isTraining?.()) {
+        stopParty();state.phase='Treinamento confirmado. Party desligada.';return;
+      }
+      if (closing.running || Date.now()<closing.retryAt) return;
+      const skill=trainingSkill();
+      if (!skill) {
+        closing.blocked=true;
+        state.phase='Escolha Sword, Axe ou Club para treinar Knight.';
+        return;
+      }
+      if (!bot?.beginPartyTraining || !valid()) {
+        state.phase='Aguardando identidade/motor de treinamento.';return;
+      }
+      closing.running=true;
+      bot.beginPartyTraining(skill).then(ok=>{
+        if (!state.enabled || !closing.active) return;
+        if (ok && bot.isTraining?.()) {
+          stopParty();state.phase='Treinamento confirmado. Party desligada.';
+        } else {
+          closing.blocked=true;
+          state.phase='Treinamento nao confirmado. Party suspensa; verifique o jogo.';
+        }
+      }).catch(err=>{
+        if (!state.enabled || !closing.active) return;
+        closing.blocked=true;
+        state.phase='Erro no Training: '+String(err?.message||err).slice(0,90);
+      }).finally(()=>{closing.running=false;render();});
+    }
     function tickAutomation() {
       setGate();
       if (!state.enabled) return;
@@ -529,10 +633,37 @@
       if (!bot?.config || !bot.startReturn) {
         state.phase='Aguardando motor Hunt...';return;
       }
+      if (closing.active) {runPartyTraining(bot);return;}
+      const hunting=partyInHunt();
+      if (hunting) {
+        closing.idleSince=0;closing.failedInvites=0;
+        if (role.value==='member') {
+          if (bot.config.botAtivo || bot.getFlow?.()) pauseHuntBot();
+          state.phase='Hunt em andamento.';return;
+        }
+      }
+      if (role.value==='member' && (bot.config.botAtivo || bot.getFlow?.())) pauseHuntBot();
+      const dialog=nativeDialog();
+      // Nao contar espera durante Hunt, convite, loading ou reconexao.
+      const safe= !hunting && !dialog && !bot.isConnLost?.() &&
+        !bot.isAsyncRunning?.() && !bot.isTrainingRunning?.() &&
+        Boolean(bot.playButton?.() || bot.gameModePanel?.());
+      if (!safe) {
+        closing.idleSince=0;
+        if (role.value==='member') state.phase=dialog?'Convite recebido; aguardando confirmacao.' :
+          'Aguardando o jogo ficar pronto.';
+        return;
+      }
+      const st=bot.readStamina?.();
+      const min=Number(staminaInput.value);
+      if (st!==null && Number.isFinite(st) && st<=min) {
+        beginPartyTraining('stamina minima atingida');return;
+      }
       if (role.value === 'member') {
-        // Nenhuma venda, treino ou nova hunt executada pelo membro.
-        if (bot.config.botAtivo || bot.getFlow?.()) pauseHuntBot();
-        state.phase = partyInHunt() ? 'Hunt em andamento.' : 'Aguardando a solicitação do líder.';
+        if (!closing.idleSince) closing.idleSince=Date.now();
+        const remaining=Number(waitInput.value)*WAIT_MS-(Date.now()-closing.idleSince);
+        if (remaining<=0) beginPartyTraining('sem convite valido no prazo');
+        else state.phase=`Aguardando convite · ${Math.ceil(remaining/60000)} min restantes.`;
         return;
       }
       const chosen = partyHunt.trim();
@@ -700,8 +831,10 @@
       el('[data-party-leader-options]').hidden=!leader;
       text('[data-party-hunt]',huntName() || (leader?partyHunt:'Aguardando o jogo'));
       text('[data-party-hunt-caption]',leader
-        ? 'Líder: venda e proteção de itens mantidas. Sem treino.'
-        : 'Membro: só confirma e assume a posição. Não vende nem treina.');
+        ? 'Líder: venda e proteção mantidas; treino automático quando necessário.'
+        : 'Membro: confirma, posiciona e treina quando a stamina baixar ou a espera vencer.');
+      el('[data-party-wait-row]').hidden=leader;
+      el('[data-party-knight-row]').hidden=getVocation(name.value)!=='knight';
       if (leader && shadow.activeElement!==partyHuntInput && partyHuntInput.value!==partyHunt) partyHuntInput.value=partyHunt;
       text('[data-party-vocation-label]',getVocation(name.value)||'não definida');
       const currentHunt=huntName();
@@ -740,13 +873,13 @@
     name.addEventListener('change',()=>{
       vocation.value=getVocation(name.value);
       if (state.enabled) stopParty();
-      save();render();
+      loadTrainPrefs();save();render();
     });
     vocation.addEventListener('change',()=>{
       if (state.enabled) stopParty();
       if(!saveVocation()) state.error='Informe nome e vocação.';
       else state.error='';
-      save();render();
+      loadTrainPrefs();save();render();
     });
     role.addEventListener('change',()=>{
       if (state.enabled) stopParty();
@@ -754,8 +887,11 @@
     });
     el('[data-party-toggle]').onclick=()=>{
       if (state.enabled) {stopParty();render();return;}
+      // Confirmar identidade internamente antes de pedir entrada manual.
+      if (!valid()) partyAutoIdentityTick();
       if (!valid()) {
-        state.error='Informe nome do personagem e vocação nas configurações.';
+        el('[data-party-setup]').hidden=false;
+        state.error='Não foi possível identificar o personagem. Preencha nome e vocação.';
         el('[data-party-setup]').open=true;render();return;
       }
       if (role.value==='leader' && !partyHunt.trim()) {
@@ -769,10 +905,84 @@
       snapshotSoloHunt();
       pauseHuntBot();
       state.enabled=true;state.cycleStarted=false;state.error='';
+      closing.active=false;closing.blocked=false;closing.failedInvites=0;closing.idleSince=0;
       save();setGate();
       el('[data-party-setup]').open=false;
       tickAutomation();render();
     };
+    // Identificacao interna: fonte nativa do jogo, depois AFK confirmado.
+    // Somente LEITURA: nao escreve no motor AFK, Hunt ou Party.
+    const partyReadNativeIdentity = () => {
+      const found=[];
+      for (const avatar of document.querySelectorAll('[data-guide="character-profile-avatar"]')) {
+        if (!avatar.isConnected || avatar.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
+        const info=avatar.parentElement?.nextElementSibling;
+        if (!info?.isConnected || info.closest('[hidden],[aria-hidden="true"]')) continue;
+        const headings=[...(info.querySelectorAll('h5')||[])];
+        if (headings.length!==2) continue;
+        const nativeVocation=norm(headings[0].textContent);
+        const nativeName=(headings[1].textContent||'').trim();
+        if (!VOCATIONS.has(nativeVocation) || nativeName.length<2 || nativeName.length>32) continue;
+        if (!found.some(x=>norm(x.name)===norm(nativeName) && x.vocation===nativeVocation))
+          found.push({name:nativeName,vocation:nativeVocation});
+      }
+      if (found.length===1) return found[0];
+      if (found.length>1) return null; // Nao escolher entre dois perfis.
+      try {
+        const bot=window.__stonegy;
+        // Evita aproveitar uma identidade antiga quando nao ha mundo carregado.
+        const inWorld=Boolean(bot?.readHuntStatus?.() || bot?.playButton?.() ||
+          bot?.gameModePanel?.() || bot?.isTraining?.());
+        if (!inWorld) return null;
+        const afk=bot?.afk?.();
+        if (!afk || !String(afk.detectedSource||'').startsWith('entrada') ||
+            !afk.current || afk.pendingLogin || afk.phase==='switch') return null;
+        if ([...document.querySelectorAll('h5')].some(h=>norm(h.textContent)==='seus personagens')) return null;
+        const matches=(afk.profiles?.roster||[]).filter(x=>norm(x.name)===norm(afk.current));
+        if (matches.length!==1) return null;
+        const row=matches[0], voc=norm(afk.currentVocation||row.vocation);
+        if (!VOCATIONS.has(voc) || (row.vocation && norm(row.vocation)!==voc)) return null;
+        const character=String(row.name||'').trim();
+        return character.length>=2 && character.length<=32 ? {name:character,vocation:voc} : null;
+      } catch (_) { return null; }
+    };
+    const partyAutoIdentityTick = () => {
+      const detected=partyReadNativeIdentity();
+      const setup=el('[data-party-setup]');
+      if (!detected) {
+        setup.hidden=false;
+        text('[data-party-auto-status]','Perfil não confirmado. Identificação manual disponível.');
+        return;
+      }
+      if (state.enabled) {
+        // Em andamento: nunca trocar nome, papel ou posicao silenciosamente.
+        const matches=norm(name.value)===norm(detected.name) && getVocation(name.value)===detected.vocation;
+        setup.hidden=matches;
+        if (!matches) text('[data-party-auto-status]',
+          'Personagem diferente detectado. Pare a Party antes de atualizar.');
+        return;
+      }
+      // Nao sobrescrever entrada manual durante edicao.
+      if (shadow.activeElement===name || shadow.activeElement===vocation) {
+        setup.hidden=false;
+        return;
+      }
+      const changed=name.value!==detected.name || vocation.value!==detected.vocation ||
+        getVocation(detected.name)!==detected.vocation;
+      if (changed) {
+        name.value=detected.name;
+        vocation.value=detected.vocation;
+        if (!saveVocation()) { setup.hidden=false; return; }
+        loadTrainPrefs();
+        save(); // Persistencia existente: sem novo formato de configuracao.
+        render();
+      }
+      // Com identidade confiavel, nenhum dado pessoal duplicado no painel.
+      setup.hidden=valid();
+      if (setup.hidden) setup.open=false;
+    };
+    partyAutoIdentityTick();
+    setInterval(partyAutoIdentityTick,1200);
     // Sem sincronizacao: cada instancia possui apenas o papel escolhido.
     setInterval(()=>{if(state.enabled){pollNative();pollPositioning();}},550);
     setInterval(()=>{tickAutomation();if(state.enabled)render();},1000);
