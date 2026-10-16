@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.29
+// // @version      6.2.43
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -50,6 +50,7 @@
     AGUARDANDO_FECHAR_VENDA: "fechar venda",
     AGUARDANDO_CHECAR_STAMINA: "stamina",
     AGUARDANDO_TREINAR: "treinar",
+    AGUARDANDO_AFK_TREINO: "AFK · iniciar treino",
     AGUARDANDO_INICIAR_HUNT: "hunt",
   }[s] || String(s || "").toLowerCase());
 
@@ -692,6 +693,7 @@
     AGUARDANDO_FECHAR_VENDA: 20000,
     AGUARDANDO_CHECAR_STAMINA: 15000,
     AGUARDANDO_TREINAR: 13 * 60 * 60 * 1000,
+    AGUARDANDO_AFK_TREINO: 60000,
     AGUARDANDO_INICIAR_HUNT: 120000,
   };
   const BOT_STEP_DEFAULT_TIMEOUT = 15000;
@@ -983,7 +985,17 @@
     if (el && botVisible(el) && !el.closest("#stonegy-tm-overlay")) return el;
     return botFindAnyTextMulti(["TRAINING"]);
   };
-  const botFindStartTrainingButton = () => botAcharH5(TEXTO_START_TRAINING);
+  // Stonegy exibe o mesmo comando em PT e EN. O clique pertence ao
+  // container highlight-animation (nao ao texto h5 isolado).
+  const botFindStartTrainingButton = () => {
+    const names = new Set(['INICIAR TREINO', 'START TRAINING']);
+    for (const h of document.querySelectorAll('h5')) {
+      if (h.closest('#stonegy-tm-overlay') || !botVisible(h)) continue;
+      if (!names.has(botNormalize(h.textContent || ''))) continue;
+      return h.closest('.highlight-animation') || botFindClickableAncestor(h) || h;
+    }
+    return null;
+  };
   const botFindFinalizarTreinoButton = () => {
     const alvo = botNormalize(TEXTO_FINALIZAR_TREINO);
     for (const h of document.querySelectorAll("h5")) {
@@ -1459,40 +1471,44 @@
 
   const botFindConcluirLureButton = () => botAcharH5(TEXTO_CONCLUIR_LURE) ?? botFindAnyTextMulti(["CONCLUIR", "CONFIRMAR"]);
 
-  // O painel de venda pode ficar somente com CANCELAR quando nao ha itens.
-  // Durante uma etapa da venda, o botao e a propria prova de que ainda ha
-  // uma janela a fechar. Nao depende de escudos nem de texto de item.
+  // v6.2.36: usar apenas controles pertencentes a VENDA RAPIDA.
+  // O jogo pode mostrar 0 / 6: seis itens na mochila, nenhum selecionado.
+  const botQuickSellModal = () => {
+    const modal = document.querySelector('[data-guide="quick-sell-modal"]');
+    return modal && botVisible(modal) && !modal.closest('#stonegy-tm-overlay') ? modal : null;
+  };
+  const botQuickSellSelected = () => {
+    const modal = botQuickSellModal();
+    if (!modal) return null;
+    for (const p of modal.querySelectorAll('p')) {
+      const label = botNormalize(p.textContent || '');
+      const match = /^SELECIONADOS\s*:\s*(\d+)\s*\/\s*(\d+)$/.exec(label);
+      if (match) return { selected: Number(match[1]), total: Number(match[2]) };
+    }
+    return null; // UI desconhecida: nunca assumir lista vazia.
+  };
   const botFindCancelButton = () => {
     const flow = botGetFlow();
-    if (!flow || ![
-      "AGUARDANDO_PAINEL", "AGUARDANDO_VERIFICAR", "AGUARDANDO_VENDER",
-      "AGUARDANDO_FECHAR_VENDA"
-    ].includes(flow.etapa)) return null;
-
-    // Nunca cancelar a prontidao da Party.
-    if ([...document.querySelectorAll('h5')].some(h =>
-      botVisible(h) && !h.closest('#stonegy-tm-overlay') &&
-      botNormalize(h.textContent) === 'CONFIRMACAO DE PRONTIDAO')) return null;
-
-    const candidates = [...document.querySelectorAll('h5')]
-      .filter(h => botVisible(h) && !h.closest('#stonegy-tm-overlay') &&
-        botNormalize(h.textContent) === 'CANCELAR')
-      .map(h => h.closest('.highlight-animation') ||
-        h.closest('button,[role="button"]'))
-      .filter(el => el && botVisible(el) && !el.closest('#stonegy-tm-overlay'));
-
-    // Um unico botao nativo, dentro de uma etapa que abriu a loja.
-    if (candidates.length === 1) return candidates[0];
-    // Duvida sobre qual janela: nunca clicar em um Cancelar aleatorio.
-    if (candidates.length !== 1) return null;
-    return null;
+    if (!flow || !['AGUARDANDO_PAINEL','AGUARDANDO_VERIFICAR',
+      'AGUARDANDO_VENDER','AGUARDANDO_FECHAR_VENDA'].includes(flow.etapa)) return null;
+    const modal = botQuickSellModal();
+    // Nunca procurar CANCELAR solto na pagina, especialmente na Party.
+    if (!modal) return null;
+    const labels = [...modal.querySelectorAll('h5,button,[role="button"]')].filter(el =>
+      botVisible(el) && botNormalize(el.textContent || '') === 'CANCELAR');
+    const buttons = [...new Set(labels.map(el =>
+      el.closest('.highlight-animation') || el.closest('button,[role="button"]'))
+      .filter(el => el && botVisible(el) && modal.contains(el)))];
+    return buttons.length === 1 ? buttons[0] : null;
   };
-
-  // Nao avancar enquanto a janela de venda estiver aberta.
   const botBeginSaleClose = (reason) => {
     const cancel = botFindCancelButton();
-    if (!cancel || !botClick(cancel)) return false;
-    botLog('flow', `🚪 ${reason} · fechando venda`);
+    if (!cancel) return false;
+    // Clique no elemento nativo .highlight-animation, sem subir para outro
+    // ancestral cursor:pointer (pode ser o wrapper, sem handler React).
+    try { cancel.click(); }
+    catch(_) { return false; }
+    botLog('flow', `🚪 ${reason} · CANCELAR da venda rapida`);
     botSaleCloseClickAt = Date.now();
     botSaleCloseAttempts = 1;
     botSaleHiddenSince = 0;
@@ -1500,7 +1516,7 @@
     return true;
   };
   const botSaleReturnedHome = () =>
-    !botSellPanelOpen() && !botFindCancelButton() &&
+    !botQuickSellModal() && !botSellPanelOpen() &&
     Boolean(botFindPlayButton() || botFindGameModePanel());
   const botSaleFinish = () => {
     if (botSellPendingSuccess) {
@@ -1731,27 +1747,23 @@
   };
 
   // ==================== ITENS (sell panel) ====================
-  const botSellPanelOpen = () => {
-    if (botFindAnyTextMulti([SELL_PANEL_HINT])) return true;
-    const svgs = document.querySelectorAll(`svg[data-testid="${ICON_PROTECTED}"], svg[data-testid="${ICON_UNPROTECTED}"]`);
-    for (const svg of svgs) { if (botVisible(svg) && !svg.closest("#stonegy-tm-overlay")) return true; }
-    return false;
-  };
+  // Estado de VENDA RAPIDA: o botao de entrada na loja NAO e a loja aberta.
+  // Todos os modos (Solo, Party e AFK) usam o mesmo motor e a mesma deteccao.
+  const botSellPanelOpen = () => Boolean(botQuickSellModal());
   const botSellPanelReady = () => {
-    if (botSellPanelOpen()) {
-      const svgs = document.querySelectorAll(`svg[data-testid="${ICON_PROTECTED}"], svg[data-testid="${ICON_UNPROTECTED}"]`);
-      for (const svg of svgs) { if (botVisible(svg) && !svg.closest("#stonegy-tm-overlay")) return true; }
-    }
-    const flow = botGetFlow();
-    if (flow && (flow.etapa === "AGUARDANDO_PAINEL" || flow.etapa === "AGUARDANDO_VERIFICAR" || flow.etapa === "AGUARDANDO_VENDER")) {
-      if (botFindCancelButton()) return true;
-    }
-    return false;
+    const modal=botQuickSellModal();
+    if (!modal) return false;
+    const svgs=modal.querySelectorAll(`svg[data-testid="${ICON_PROTECTED}"],svg[data-testid="${ICON_UNPROTECTED}"]`);
+    if ([...svgs].some(botVisible)) return true;
+    // Sem icones renderizados, CANCELAR ainda confirma que o modal terminou de abrir.
+    return [...modal.querySelectorAll('h5')].some(h => botVisible(h) && botNormalize(h.textContent)==='CANCELAR');
   };
   const botFindAllSellItems = () => {
     const items = [];
     const seen = new Set();
-    const nodes = document.querySelectorAll("[aria-label]");
+    const modal=botQuickSellModal();
+    if (!modal) return items;
+    const nodes = modal.querySelectorAll("[aria-label]");
     for (const node of nodes) {
       if (node.closest("#stonegy-tm-overlay")) continue;
       if (!botVisible(node)) continue;
@@ -1850,7 +1862,9 @@
     return { ok: wrong.length === 0, wrong, total: all.length };
   };
   const botFindSellConfirmButton = () => {
-    const list = document.querySelectorAll("button,[role=button],a,div,span,h5,h4,h6");
+    const modal=botQuickSellModal();
+    if (!modal) return null;
+    const list = modal.querySelectorAll("button,[role=button],a,div,span,h5,h4,h6");
     const exact = ["VENDER","SELL","CONFIRMAR","CONFIRM","CONCLUIR","FINALIZAR","VENDER ITENS","VENDER SELECIONADOS","VENDER TUDO","VENDER TODOS","CONFIRMAR VENDA","CONFIRM SELL","ACEITAR","VENDER ITEM"];
     for (const el of list) {
       if (!botVisible(el)) continue;
@@ -1912,7 +1926,7 @@
     if (botConnLostActive) return null;
     if (botInactivityActive) return null;
     if (botInHunt()) return null;
-    if (botTreinando()) return botIsPartyLeader() ? null : "AGUARDANDO_TREINAR";
+    if (botTreinando()) return afk.enabled ? null : botIsPartyLeader() ? null : "AGUARDANDO_TREINAR";
     if (botSellPanelOpen()) return "AGUARDANDO_PAINEL";
     if (botFindAnyTextMulti(["VENDA RÁPIDA", "VENDA RAPIDA", "VENDER RÁPIDA", "SELL"])) return "AGUARDANDO_VENDA";
     if (botFindGameModePanel()) return "AGUARDANDO_CHECAR_STAMINA";
@@ -2480,7 +2494,7 @@ header > span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shr
 header button{border:1px solid #8e7040;border-radius:4px;background:#352917;color:#ffe4a2;padding:2px 5px;cursor:pointer;font:inherit;line-height:1;font-size:10px;min-width:20px;transition:all .15s ease}
 header button:hover{background:#4a3920;transform:translateY(-1px)}
 header button:active{transform:translateY(0)}
-#body{display:flex;flex-direction:column;overflow:hidden}
+#body{display:flex;flex:1 1 auto;min-height:0;flex-direction:column;overflow:hidden}
 .tabs{display:flex;gap:2px;flex-wrap:wrap;padding:6px 10px 0;border-bottom:1px solid #ffffff14}
 .tab{border:0;background:transparent;color:#8b95a1;font-size:10px;font-weight:600;padding:5px 7px 6px;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s ease, border-color .15s ease}
 .tab:hover{color:#cbd5e1}
@@ -2993,7 +3007,7 @@ details.console summary::before{color:#a79dff}
 .bestiary-empty{font-size:11px;line-height:1.5;color:#96a4c3;padding:12px 2px}
 
 /* DASHBOARD EMERICKST 6.2.11 (visual somente) */
-.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:8px 10px 7px}
+.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:8px 10px 7px}
 .tabs .tab{border:1px solid #303850;border-radius:7px;padding:8px 2px;background:#1b2030;color:#aebad1;font-size:10px}
 .tabs .tab.active{background:#302b51;border-color:#8173c9;color:#e3dcff}
 .dash-view,.settings-view{overflow-y:auto;min-height:0;max-height:calc(100dvh - 175px);scrollbar-width:thin;scrollbar-color:#3d4463 transparent}
@@ -3048,10 +3062,94 @@ details.console summary::before{color:#a79dff}
 .dash-boxes .type{padding:5px 0;border-top:1px solid #ffffff0e;color:#c7d1e5;font-size:11px}
 .settings-view{padding:12px}
 .settings-card{border:1px solid #343951;background:#191e2d;border-radius:10px;padding:12px;margin-bottom:10px}
+.afk-view{padding:13px 11px 15px;display:flex;flex:1 1 auto;min-height:0;flex-direction:column;gap:11px;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;scrollbar-width:thin;scrollbar-color:#555d80 transparent}
+.afk-view[hidden]{display:none!important}
+.afk-heading{display:flex;align-items:center;justify-content:space-between;font-size:14px;color:#e5e1f8}
+.afk-heading span{font-size:10px;color:#97a2bc;font-weight:400}
+.afk-status{min-height:32px;padding:8px 10px;background:#1c2230;border:1px solid #343c55;border-radius:9px;color:#bac5dd;font-size:11px}
+.afk-status[data-running="true"]{border-color:#5d6689;color:#e1dcff}
+.afk-queue-row .afk-queue-pick:not(:disabled){cursor:pointer}
+.afk-field input:disabled,.afk-field select:disabled{opacity:.5}
+.afk-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9px}
+.afk-fields:first-of-type{grid-template-columns:minmax(0,1fr) 98px}
+.afk-field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.afk-field>span{font-size:10px;letter-spacing:.09em;font-weight:700;color:#a8b3c9}
+.afk-field input,.afk-field select{width:100%;min-width:0;box-sizing:border-box;border:1px solid #3b465f;border-radius:9px;background:#121726;color:#e7e9f4;min-height:43px;font:12px system-ui;padding:0 11px;outline:none}
+.afk-field input:focus,.afk-field select:focus{border-color:#9287d8}
+.afk-fields .afk-field:only-child{grid-column:1/-1}
+.afk-field input:disabled,.afk-field select:disabled{opacity:.7}
+.afk-toggle{min-height:46px;border:1px solid #8173c9;border-radius:10px;background:#362e56;color:#f0eaff;font:600 12px system-ui;cursor:pointer}
+.afk-toggle[data-on="true"]{background:#392933;border-color:#a16d80;color:#f0cad6}
+.afk-roster{font-size:10px;color:#91a0bb;line-height:1.5;margin:0}
+.afk-queue-title{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:10px;color:#cbd3e8}
+.afk-queue-title span{font-size:9px;color:#8895ae}
+.afk-queue{display:flex;flex-direction:column;gap:5px;max-height:190px;overflow:auto}
+.afk-queue-row{display:flex;gap:7px;align-items:center;min-height:32px;padding:4px 7px;border:1px solid #353d53;border-radius:8px;background:#191e2b}
+.afk-queue-row[data-enabled="false"]{opacity:.57}
+.afk-queue-row label{display:flex;align-items:center;gap:7px;flex:1;min-width:0;cursor:pointer}
+.afk-queue-row label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#e6e8f2}
+.afk-queue-row input{accent-color:#b4a6ed;flex-shrink:0}
+.afk-queue-row button{border:1px solid #3e4660;border-radius:6px;background:#252b3b;color:#ddd6f5;min-width:27px;height:27px;cursor:pointer;font-size:12px}
+.afk-queue-row button:disabled{opacity:.3;cursor:default}
+.afk-queue-empty,.afk-queue-hint{font-size:10px;color:#8f9db7;line-height:1.4;margin:0}
+/* AFK: edicao dos perfis sem alterar o personagem realmente aberto no jogo */
+.afk-roster-actions{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.afk-roster-actions strong{font-size:11px;color:#e3e5f4}
+.afk-scan{border:1px solid #46415f;border-radius:6px;background:#292540;color:#d9d0f8;font:10px system-ui;padding:6px 9px;cursor:pointer}
+.afk-scan:disabled{opacity:.5;cursor:not-allowed}
+.afk-game-label{color:#b3c1dc!important}
+.afk-game-tip{font-size:10px;color:#899ab7;margin:-5px 0 1px;line-height:1.45}
+.afk-queue-row[data-selected="true"]{border-color:#8b7bd2;background:#27243b}
+.afk-queue-pick{flex:1;min-width:0;text-align:left;display:flex;flex-direction:column;gap:3px;padding:3px;border:0;background:transparent;color:#ecedfa;cursor:pointer}
+.afk-queue-row .afk-queue-pick{border:0;background:none;height:auto;min-width:0;border-radius:0;padding:3px 2px}
+.afk-queue-pick strong{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.afk-queue-pick small{font-size:9px;color:#9ba9c4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.afk-queue-row[data-selected="true"] .afk-queue-pick strong{color:#d7c9ff}
+.afk-queue-row[data-enabled="false"]{opacity:1}
+.afk-queue-row[data-enabled="false"] .afk-queue-pick{opacity:.63}
+.afk-queue-row[data-enabled="false"] .afk-queue-pick[data-afk-pick]{cursor:pointer}
+.afk-queue-row input{width:15px;height:15px;margin:0}
+.afk-queue-row .afk-queue-arrows{display:flex;gap:4px}
+.afk-add{display:flex;gap:6px}
+.afk-add input{min-width:0;flex:1;border:1px solid #3b465f;border-radius:7px;background:#121726;color:#e7e9f4;padding:8px 9px;font:11px system-ui}
+.afk-add button{border:1px solid #454066;background:#2b2646;color:#e6defe;border-radius:7px;padding:7px 9px;font:10px system-ui;cursor:pointer}
+.afk-add button:disabled,.afk-add input:disabled{opacity:.5;cursor:not-allowed}
+.afk-editor{border:1px solid #383c57;background:#1b2030;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:10px}
+.afk-editor-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.afk-editor-header small{font-size:9px;letter-spacing:.1em;color:#97a5c0}
+.afk-editor-header strong{display:block;margin-top:3px;font-size:13px;color:#e9e3ff}
+.afk-editor-vocation{font-size:9px;color:#afbef1;border:1px solid #4c4973;padding:5px 7px;border-radius:6px;white-space:nowrap}
+.afk-editor .afk-fields{margin:0}
+.afk-editor .afk-fields.hunt-row{grid-template-columns:minmax(0,1fr) 90px}
+.afk-editor .afk-fields.other-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+.afk-editor-placeholder{font-size:10px;color:#9babca;line-height:1.5;margin:0}
+.afk-inline-order{font-size:10px;color:#cbbff2;line-height:1.5;word-break:break-word}
 .settings-card strong{display:block;font-size:12px;margin-bottom:8px;color:#ded8fa}
 .settings-card p{color:#9eaac3;font-size:10px;line-height:1.5;margin:8px 0 0}
 .settings-card .settings-buttons{display:flex;gap:7px}
 header button[data-settings-trigger=true].selected{background:#514572;border-color:#a69be5;color:#fff}
+/* AFK v6.2.35: linhas compactas, sem scroll aninhado */
+.afk-view{gap:9px;max-width:100%;box-sizing:border-box}
+.afk-view *{box-sizing:border-box}
+.afk-roster-actions{gap:6px;min-width:0}
+.afk-roster-actions strong{font-size:10px;letter-spacing:.04em;min-width:0}
+.afk-scan{flex:none;padding:5px 8px;font-size:10px}
+.afk-queue{max-height:none;overflow:visible;gap:4px;min-width:0;width:100%}
+.afk-queue-row{height:36px;min-height:36px;padding:3px 5px;gap:5px;min-width:0;width:100%;border-radius:8px}
+.afk-queue-row input{width:14px;height:14px;flex:none}
+.afk-queue-row .afk-queue-pick{min-width:0;display:flex;flex:1 1 auto;flex-direction:row;align-items:center;gap:6px;overflow:hidden}
+.afk-queue-pick strong{font-size:11px;flex:0 1 auto;max-width:52%;line-height:1.2}
+.afk-queue-pick small{font-size:9px;flex:1 1 0;min-width:0;line-height:1.2;color:#8996ae}
+.afk-queue-row .afk-queue-arrows{gap:3px;flex:none}
+.afk-queue-row .afk-queue-arrows button{width:24px;min-width:24px;height:26px;padding:0;font-size:12px;border-radius:6px}
+.afk-add-details{border:1px solid #30394e;border-radius:8px;padding:0 8px;color:#aeb9cd}
+.afk-add-details summary{cursor:pointer;font-size:10px;padding:8px 0;list-style:none}
+.afk-add-details summary::-webkit-details-marker{display:none}
+.afk-add-details[open] summary{border-bottom:1px solid #30394e;margin-bottom:8px}
+.afk-add-details .afk-add{margin-bottom:8px;min-width:0}
+.afk-add-details .afk-add input{min-width:0;width:100%}
+.afk-editor{gap:8px;padding:9px}
+.afk-game-tip{font-size:9px;line-height:1.35}
 </style>
 <div class="toast-container" data-toast-container></div>
 <section class="panel">
@@ -3068,6 +3166,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       <button class="tab active" data-view="dashboard">Dashboard</button>
       <button class="tab" data-view="bot">Hunt</button>
       <button class="tab" data-view="bestiary">Bestiário</button>
+      <button class="tab" data-view="afk">AFK</button>
     </div>
     <section class="dash-view" data-dashboard data-selected="dealt">
       <div data-dashboard-character style="font-size:10px;color:#a6b1c5;padding:8px 12px 0">Todos os personagens</div>
@@ -3106,6 +3205,40 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       <div class="bestiary-toolbar"><strong>Bestiário</strong><button type="button" class="bestiary-refresh" data-bestiary-refresh title="Conferir progresso real">↻</button><button type="button" class="bestiary-toggle" data-bestiary-toggle aria-pressed="false">▶ Iniciar</button></div>
       <div class="bestiary-status" data-bestiary-status>Aguardando hunt.</div>
       <div data-bestiary-rows><div class="bestiary-empty">Clique em Atualizar durante uma hunt.</div></div>
+    </section>
+    <section class="afk-view" data-afk-view hidden>
+      <div class="afk-heading"><strong>AFK</strong><span>Rotação Solo</span></div>
+      <div class="afk-status" data-afk-status>Configure os personagens que vão caçar.</div>
+      <label class="afk-field afk-full"><span class="afk-game-label">PERSONAGEM ABERTO NO JOGO</span>
+        <input type="text" data-afk-current list="emerick-afk-names" placeholder="Confirme quem está logado" autocomplete="off" spellcheck="false" />
+      </label>
+      <p class="afk-game-tip">Confirme quem está no jogo antes de iniciar. Editar outro perfil não troca de personagem.</p>
+      <div class="afk-roster-actions"><strong>PERSONAGENS · ORDEM</strong><button type="button" data-afk-scan class="afk-scan" title="Ler personagens na tela de seleção">↻ Ler lista</button></div>
+      <div class="afk-queue" data-afk-queue></div>
+      <details class="afk-add-details"><summary>+ Adicionar personagem</summary>
+        <div class="afk-add"><input type="text" data-afk-add placeholder="Nome do personagem" maxlength="60" autocomplete="off" spellcheck="false" /><button type="button" data-afk-add-btn>Adicionar</button></div>
+      </details>
+      <div class="afk-editor" data-afk-editor-panel>
+        <div class="afk-editor-header"><div><small>CONFIGURANDO</small><strong data-afk-editing>Selecione um personagem</strong></div><span class="afk-editor-vocation" data-afk-vocation>PERFIL</span></div>
+        <div class="afk-fields hunt-row">
+          <label class="afk-field"><span>HUNT ALVO</span>
+            <input type="text" data-afk-hunt placeholder="Hunt ou criatura" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="afk-field"><span>LURE</span>
+            <select data-afk-lure><option value="max">MAX</option><option value="off">OFF</option></select>
+          </label>
+        </div>
+        <div class="afk-fields other-row"><label class="afk-field"><span>STAMINA MÍN</span>
+          <select data-afk-stamina>${staminaOptions}</select></label>
+          <label class="afk-field"><span>SKILL TREINO</span>
+          <select data-afk-skill><option value="auto">AUTO · VOCAÇÃO</option><option value="Sword">Sword</option><option value="Axe">Axe</option><option value="Club">Club</option><option value="Fist">Fist</option><option value="Distance">Distance</option><option value="Magic">Magic</option></select></label>
+        </div>
+        <p class="afk-editor-placeholder" data-afk-editor-hint>Configurações salvas automaticamente para cada personagem.</p>
+      </div>
+      <datalist id="emerick-afk-names" data-afk-names></datalist>
+      <p class="afk-inline-order" data-afk-order>Selecione quem vai participar.</p>
+      <button type="button" data-afk-toggle class="afk-toggle">▶ Iniciar AFK</button>
+      <p class="afk-roster" data-afk-roster>Abra Trocar Personagem uma vez para detectar a lista, ou adicione nomes manualmente.</p>
     </section>
     <div class="bot-view" data-bot-view hidden>
       <div class="status-bar">
@@ -3203,9 +3336,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     document.documentElement.appendChild(host);
     panelHost = host;
     try { window.__emerickPartyInit?.(shadow); } catch (e) { console.warn("[EmerickST Party]", e); }
+    afkBind(shadow);
 
     const panel = shadow.querySelector(".panel"), rows = shadow.querySelector("#rows");
-    let activeView = ["bot", "bestiary"].includes(overlayState.activeView) ? overlayState.activeView : "dashboard";
+    let activeView = ["bot", "bestiary", "afk"].includes(overlayState.activeView) ? overlayState.activeView : "dashboard";
     let selectedMetric = overlayState.activeView === "received" ? "received" : overlayState.combatMetric === "received" ? "received" : "dealt";
     let settingsOpen = false;
     let collapsed = overlayState.collapsed === true, dragging = false, dx = 0, dy = 0;
@@ -3230,7 +3364,28 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     applyFont();
     applyMini();
 
-    const fit = () => { const top = Math.max(0, Math.min(panel.getBoundingClientRect().top, window.innerHeight - 300)); panel.style.top = `${top}px`; panel.style.maxHeight = `${Math.max(0, window.innerHeight - top - 12)}px`; };
+    const fit = () => {
+      if (miniMode) return;
+      const scale = Number.parseFloat(panel.style.zoom) || 1;
+      // Evitar corte lateral em resolucoes estreitas e com A+ (zoom).
+      panel.style.width = `${Math.max(230, Math.min(330, (window.innerWidth - 24) / scale))}px`;
+      const rect = panel.getBoundingClientRect();
+      if (rect.width > window.innerWidth - 8) {
+        panel.style.width = `${Math.max(100, (window.innerWidth - 16) / scale)}px`;
+      }
+      // Recolocar o painel na tela quando sua posicao salva estiver fora.
+      if (panel.style.left && panel.style.left !== 'auto') {
+        const left = panel.getBoundingClientRect().left;
+        const right = panel.getBoundingClientRect().right;
+        if (left < 6 || right > window.innerWidth - 6) {
+          const fix = Math.max(6, Math.min(window.innerWidth - panel.getBoundingClientRect().width - 6, left));
+          panel.style.left = `${fix / scale}px`;
+        }
+      }
+      const top = Math.max(0, Math.min(panel.getBoundingClientRect().top, window.innerHeight - 300));
+      panel.style.top = `${top / scale}px`;
+      panel.style.maxHeight = `${Math.max(0, window.innerHeight - top - 12) / scale}px`;
+    };
     setPanelVisible = (visible) => {
       const next = Boolean(visible);
       host.hidden = !next;
@@ -3293,6 +3448,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       e.stopPropagation();
       fontScale = Math.max(BOT_FONT_MIN, Math.round((fontScale - BOT_FONT_STEP) * 100) / 100);
       applyFont();
+      fit();
       saveOverlay();
       botToast("info", `🔤 Fonte ${Math.round(fontScale * 100)}%`);
     };
@@ -3300,6 +3456,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       e.stopPropagation();
       fontScale = Math.min(BOT_FONT_MAX, Math.round((fontScale + BOT_FONT_STEP) * 100) / 100);
       applyFont();
+      fit();
       saveOverlay();
       botToast("info", `🔤 Fonte ${Math.round(fontScale * 100)}%`);
     };
@@ -3417,14 +3574,17 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       shadow.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === activeView));
       const botView = shadow.querySelector("[data-bot-view]");
       const bestiaryView = shadow.querySelector("[data-bestiary-view]");
+      const afkView = shadow.querySelector("[data-afk-view]");
       const dashboard = shadow.querySelector("[data-dashboard]");
       const settings = shadow.querySelector("[data-settings-view]");
       settings.hidden = !settingsOpen;
       dashboard.hidden = settingsOpen || activeView !== "dashboard";
       botView.hidden = settingsOpen || activeView !== "bot";
       bestiaryView.hidden = settingsOpen || activeView !== "bestiary";
+      afkView.hidden = settingsOpen || activeView !== "afk";
       shadow.querySelector("[data-settings-trigger]").classList.toggle("selected", settingsOpen);
       if (settingsOpen) return;
+      if (activeView === "afk") { afkRender(shadow); return; }
       if (activeView === "bestiary") { emRenderBestiary(); return; }
       if (activeView === "bot") { botUpdatePanel(); return; }
 
@@ -3779,6 +3939,17 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     const capHint = botRoot.querySelector("[data-capture-hint]");
     if (capHint) capHint.classList.toggle("on", botIsCaptureOn());
     botRenderProtectedList();
+    if (botRoot.querySelector('[data-afk-view]')?.hidden===false) {
+      if (afk.enabled && afk.phase==='switch') {
+        // A lista no jogo pode estar sendo montada; durante a troca, atualizar
+        // apenas o texto de status e nunca reconstruir a lista AFK a cada 1s.
+        const status=botRoot.querySelector('[data-afk-status]');
+        if (status) {
+          status.textContent=`TROCANDO PERSONAGEM · ${afk.target} · ${afk.stage} · ${afk.message}`;
+          status.dataset.running='true';
+        }
+      } else afkRender(botRoot);
+    }
   };
   function setupBotTab() {
     const shadow = botRoot; if (!shadow || (botStatus && botFlow)) return;
@@ -3861,6 +4032,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       skipProtCb.onchange = () => { BOT_CONFIG.skipProtection = skipProtCb.checked; botSaveConfig(); botUpdatePanel(); botLog("warn", `Pular prot: ${skipProtCb.checked ? "ON" : "OFF"}`); };
     }
     shadow.querySelector("[data-bot=toggle]").onclick = () => {
+      if (afk.enabled) {
+        botLogAndToast('warn','Controle a caça pelo botão Iniciar/Parar AFK.');
+        return;
+      }
       if (window.__emerickPartyGate?.enabled) {
         botLogAndToast("warn", "Controle a caça pelo botão Iniciar/Parar Party.");
         return;
@@ -3948,7 +4123,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           botSetFlow("AGUARDANDO_VERIFICAR");
         } else if (Date.now() - botPanelWaitStart > BOT_PANEL_READY_TIMEOUT_MS) {
           botLog("error", "✗ Painel não abriu");
-          botClearFlow("painel não abriu");
+          if (afk.enabled) afkStop('Venda rápida não abriu. AFK pausado.');
+          else botClearFlow("painel não abriu");
         }
       }
       else if (flow.etapa === "AGUARDANDO_VERIFICAR") {
@@ -3957,11 +4133,18 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         if (v.ok) {
           botLog("flow", `✓ Proteção OK · ${v.total}`);
           botProtectAttempts = 0; botLastWrongCount = -1; botStagnantCycles = 0;
-          if (!botHasSellableItems()) {
-            if (botBeginSaleClose('Sem itens vendaveis')) return;
+          const nativeSelected = botQuickSellSelected();
+          // Mesmo com itens na mochila, o contador nativo 0 / N
+          // confirma que nenhum foi selecionado apos sincronizar protecao.
+          if (nativeSelected?.selected === 0 || !botHasSellableItems()) {
+            if (nativeSelected?.selected === 0 && botHasSellableItems())
+              botLog('warn', '⚠ Contador 0 / N diverge dos icones; CANCELAR por seguranca');
+            if (botBeginSaleClose('Nenhum item selecionado para venda')) return;
             // Uma venda anterior pode ter fechado a loja sozinha.
             if (botSaleReturnedHome()) { botSaleFinish(); return; }
-            botLog('warn','⚠ Sem itens: CANCELAR ainda nao apareceu na loja');
+            if (Date.now() - flow.timestamp > 12000 && afk.enabled)
+              afkStop('Venda rápida: CANCELAR não encontrado. AFK pausado.');
+            else botLog('warn','⚠ Nenhum item selecionado: aguardando CANCELAR da venda');
             return;
           }
           botSetFlow("AGUARDANDO_VENDER");
@@ -3999,10 +4182,14 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
             return;
           }
         }
-        // Antes de qualquer clique VENDER: impedir a venda com lista vazia.
-        if (!botHasSellableItems()) {
-          if (botBeginSaleClose('Lista vazia')) return;
+        // A confirmacao nativa tem prioridade: 0 / 6 nao significa mochila
+        // vazia; significa que nenhum item pode ser vendido nesta rodada.
+        const nativeSelected = botQuickSellSelected();
+        if (nativeSelected?.selected === 0 || !botHasSellableItems()) {
+          if (botBeginSaleClose('Lista sem selecionados')) return;
           if (botSaleReturnedHome()) { botSaleFinish(); return; }
+          if (Date.now() - flow.timestamp > 12000 && afk.enabled)
+            afkStop('Venda rápida: não foi possível fechar a lista vazia.');
           return;
         }
         // Aguardar o jogo processar a venda; sem rajadas a cada 400 ms.
@@ -4039,15 +4226,17 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         const cancel = botFindCancelButton();
         if (cancel && Date.now() - botSaleCloseClickAt >= 2500 &&
             botSaleCloseAttempts < 3) {
-          if (botClick(cancel)) {
+          try {
+            cancel.click();
             botSaleCloseAttempts += 1;
             botSaleCloseClickAt = Date.now();
-            botLog('warn', `↻ CANCELAR · tentativa ${botSaleCloseAttempts}`);
-          }
+            botLog('warn', `↻ CANCELAR da venda · tentativa ${botSaleCloseAttempts}`);
+          } catch(_) { /* falha segura: nao clicar em outra janela */ }
         }
         if (Date.now() - flow.timestamp > 14000) {
-          botLog('error','✗ Loja nao fechou: Play bloqueado por seguranca');
-          botClearFlow('janela de venda permaneceu aberta');
+          botLog('error','✗ Venda rapida nao fechou: Hunt bloqueada por seguranca');
+          if (afk.enabled) afkStop('Venda rápida não fechou. AFK pausado; verifique a janela.');
+          else botClearFlow('janela de venda permaneceu aberta');
         }
       }
       else if (flow.etapa === "AGUARDANDO_CHECAR_STAMINA") {
@@ -4058,6 +4247,17 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           return;
         }
         const st = botReadStamina();
+        if (afk.enabled && afk.phase==='hunt') {
+          if (st === null) {
+            afkSay('Stamina não identificada; aguardando leitura segura.');
+            return;
+          }
+          const own=afkProfile(afk.current);
+          if (!own) {afkStop('Personagem atual não configurado.');return;}
+          botSetFlow(st <= Number(own.stamina)
+            ? 'AGUARDANDO_AFK_TREINO' : 'AGUARDANDO_INICIAR_HUNT');
+          return;
+        }
         if (st === null) {
           botLog("warn", "⚠ Stamina não lida · assumindo OK");
           botSetFlow("AGUARDANDO_INICIAR_HUNT");
@@ -4071,6 +4271,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           botLog("flow", `⏱ ${stStr} → caçar`);
           botSetFlow("AGUARDANDO_INICIAR_HUNT");
         }
+      }
+      else if (flow.etapa === "AGUARDANDO_AFK_TREINO") {
+        afkHandleTrainingStep();
       }
       else if (flow.etapa === "AGUARDANDO_TREINAR") {
         if (botIsPartyLeader()) {
@@ -4104,6 +4307,12 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       }
       else if (flow.etapa === "AGUARDANDO_INICIAR_HUNT") {
         if (botHuntAsyncRunning) return;
+        // AFK: um perfil editado durante a caça vale para a próxima Hunt.
+        // Este é o mesmo ponto do motor compartilhado usado por Solo/Party.
+        if (afk.enabled && afk.phase==='hunt' && !afkApplyProfile()) {
+          afkStop(`Configure a Hunt de ${afk.current} antes de iniciar a proxima.`);
+          return;
+        }
         if (!BOT_CONFIG.huntName || !BOT_CONFIG.huntName.trim()) {
           botLogAndToast("error", "⚠ Defina uma hunt alvo na aba Hunt");
           botClearFlow("hunt vazia");
@@ -4166,6 +4375,767 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     botSetFlow("AGUARDANDO_VENDA");
     botProcess();
   };
+  // ==================== AFK: ORQUESTRACAO SOLO POR PERSONAGEM ====================
+  // Perfis compartilhados na mesma conta; execucao restrita a esta aba (sessionStorage).
+  const AFK_PROFILES_KEY = 'emerickst_afk_profiles_v1';
+  const AFK_SESSION_KEY = 'emerickst_afk_session_v1';
+  const afkNorm = value => botNormalize(value);
+  const afkReadJson = (storage, key, fallback) => {
+    try { return JSON.parse(storage.getItem(key) || 'null') || fallback; }
+    catch (_) { return fallback; }
+  };
+  const afkProfiles = afkReadJson(localStorage, AFK_PROFILES_KEY, {roster:[], profiles:{}});
+  if (!Array.isArray(afkProfiles.roster)) afkProfiles.roster=[];
+  if (!afkProfiles.profiles || typeof afkProfiles.profiles !== 'object') afkProfiles.profiles={};
+  if (!Array.isArray(afkProfiles.queue)) afkProfiles.queue=[];
+  const afk = Object.assign({enabled:false, current:'', phase:'idle', target:'', stage:'',
+    visited:[], since:0, attempt:0, lastAction:0, message:'Escolha os personagens e a ordem da rotação.', solo:null},
+    afkReadJson(sessionStorage, AFK_SESSION_KEY, {}));
+  if (!Array.isArray(afk.visited)) afk.visited=[];
+  if (typeof afk.editing !== 'string') afk.editing='';
+  let afkBusy=false;
+  const afkPersist = () => {
+    try { localStorage.setItem(AFK_PROFILES_KEY, JSON.stringify(afkProfiles)); } catch (_) {}
+    try { sessionStorage.setItem(AFK_SESSION_KEY, JSON.stringify(afk)); } catch (_) {}
+  };
+  const afkSay = (message, level='info') => {
+    if (afk.message !== message) botLog(level, '🌙 AFK · '+message);
+    afk.message=message; afkPersist();
+  };
+  const afkProfile = name => {
+    const key=afkNorm(name);
+    if (!key) return null;
+    if (!afkProfiles.profiles[key]) afkProfiles.profiles[key]={
+      name: String(name).trim(), hunt:'', lure:'max', stamina:1, next:''};
+    return afkProfiles.profiles[key];
+  };
+  // Lista ordenada de nomes, com inclusao explicita (desmarcado por padrao).
+  // Os perfis antigos v6.2.30 sao mantidos; 'next' deixa de ser utilizado.
+  const afkQueueSync = () => {
+    const seen=new Set();
+    const queue=[];
+    for (const item of afkProfiles.queue) {
+      const name=String(item?.name||'').trim();
+      const id=afkNorm(name);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);queue.push({name,enabled:item.enabled===true});
+    }
+    for (const item of [...afkProfiles.roster, ...Object.values(afkProfiles.profiles)]) {
+      const name=String(item?.name||'').trim();
+      const id=afkNorm(name);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);queue.push({name,enabled:false});
+    }
+    // Adiciona o personagem atual somente depois que seu perfil for salvo.
+    if (afk.current && afkProfiles.profiles[afkNorm(afk.current)]) {
+      const id=afkNorm(afk.current);
+      if (!seen.has(id)) queue.push({name:afk.current,enabled:false});
+    }
+    if (JSON.stringify(queue)!==JSON.stringify(afkProfiles.queue)) {
+      afkProfiles.queue=queue;
+      afkPersist();
+    }
+    return afkProfiles.queue;
+  };
+  const afkSequence = () => afkQueueSync().filter(row=>row.enabled).map(row=>row.name);
+  // O perfil pode ser editado sempre; a fila so pode ser alterada daqui para
+  // frente, enquanto estamos caçando. A troca em andamento fica congelada.
+  const afkQueueCanEdit = (list, index) => {
+    if (!afk.enabled) return true;
+    if (afk.phase!=='hunt' || index<0 || index>=list.length) return false;
+    const currentIndex=list.findIndex(row=>afkNorm(row.name)===afkNorm(afk.current));
+    if (currentIndex<0 || index<=currentIndex) return false;
+    return !afk.visited.some(name=>afkNorm(name)===afkNorm(list[index].name));
+  };
+  const afkNames = () => [...new Set([
+    ...afkProfiles.roster.map(x=>x.name),
+    ...Object.values(afkProfiles.profiles).map(x=>x.name),
+    ...afkProfiles.queue.map(x=>x.name),
+    afk.current, afk.target
+  ].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  // Na pagina SEUS PERSONAGENS, os cartoes sao a referencia principal.
+  // O cabecalho e a classe externa variam durante a navegacao React.
+  // Nao e seguro usar o primeiro cartao nem a posicao como identidade.
+  const afkFindCards = () => {
+    const groups=[...document.querySelectorAll('.css-1n31i2o')].filter(el =>
+      el.isConnected && !el.closest('#stonegy-tm-overlay'));
+    for (const group of groups) {
+      const nodes=[...group.querySelectorAll('.css-16d0rbh')];
+      const cards=nodes.flatMap(node=>{
+        if (!node.isConnected || node.closest('#stonegy-tm-overlay') ||
+            !node.getClientRects().length || !botVisible(node)) return [];
+        const h=[...node.querySelectorAll('h5')];
+        const name=String(h[0]?.textContent||'').trim();
+        const info=String(h[1]?.textContent||'').trim();
+        const voc=/Level\s+\d+\s+(KNIGHT|SORCERER|DRUID|PALADIN|MONK)\b/i.exec(info);
+        return name && voc ? [{name,vocation:voc[1].toLowerCase(),node}] : [];
+      });
+      // Uma lista real, nao um menu ou item homonimo em outra pagina.
+      if (cards.length>=2) return cards;
+    }
+    return [];
+  };
+  const afkSelectionRoot = () => {
+    const cards=afkFindCards();
+    if (cards.length<2) return null;
+    return cards[0].node.closest('.css-1nqo1lq') || cards[0].node.closest('.css-1n31i2o');
+  };
+  const afkScanRoster = () => {
+    const cards=afkFindCards();
+    if (!cards.length) return cards;
+    const previous=JSON.stringify(afkProfiles.roster);
+    afkProfiles.roster=cards.map(({name,vocation})=>({name,vocation}));
+    for (const {name} of cards) afkProfile(name);
+    afkQueueSync(); // nao redefine ordem nem marcacoes ja salvas.
+    if (!afk.editing && afkProfiles.queue.length) afk.editing=afkProfiles.queue[0].name;
+    if (JSON.stringify(afkProfiles.roster)!==previous) {
+      afkPersist();
+      afkSay(`${cards.length} personagens reconhecidos na seleção.`);
+    }
+    return cards;
+  };
+  const afkApplyProfile = () => {
+    const profile=afkProfile(afk.current);
+    if (!profile || !profile.hunt?.trim()) return false;
+    BOT_CONFIG.huntName=profile.hunt.trim();
+    BOT_CONFIG.lastHuntName=BOT_CONFIG.huntName;
+    BOT_CONFIG.lureModo=profile.lure==='off'?'off':'max';
+    BOT_CONFIG.minStaminaHours=Number(profile.stamina);
+    botSaveConfig();
+    return true;
+  };
+  const afkStop = (reason='AFK parado') => {
+    afk.enabled=false; afk.phase='idle'; afk.target=''; afk.stage='';
+    afk.selectedVerified=false; afk.selectionAttempts=0; afk.selectedAt=0;
+    BOT_CONFIG.botAtivo=false;
+    botSaveConfig();
+    if (botGetFlow()) botClearFlow('AFK parado');
+    if (afk.solo) {
+      BOT_CONFIG.huntName=afk.solo.hunt;
+      BOT_CONFIG.lastHuntName=afk.solo.hunt;
+      BOT_CONFIG.lureModo=afk.solo.lure;
+      BOT_CONFIG.minStaminaHours=afk.solo.stamina;
+      botSaveConfig();
+    }
+    afk.solo=null;
+    afkSay(reason, 'warn');
+    botUpdatePanel();
+  };
+  const afkStart = () => {
+    // Iniciar AFK e um comando autonomo: nunca depende do botao Hunt.
+    if (window.__emerickPartyGate?.enabled) {
+      afkSay('A Party está ligada. Pare a Party antes de iniciar AFK.', 'warn'); return;
+    }
+    const sequence=afkSequence();
+    if (!sequence.length) {
+      afkSay('Marque os personagens na Ordem de execução antes de iniciar.', 'warn'); return;
+    }
+    if (!afk.current?.trim()) {
+      afkSay('Informe o personagem que está aberto no jogo.', 'warn'); return;
+    }
+    if (afkNorm(sequence[0])!==afkNorm(afk.current)) {
+      afkSay(`Ordem começa por ${sequence[0]}. Entre nele e escolha-o em Personagem atual.`, 'warn'); return;
+    }
+    const profile=afkProfile(afk.current);
+    if (!profile?.hunt?.trim()) {
+      afkSay(`Configure a Hunt de ${afk.current} na própria aba AFK.`, 'warn'); return;
+    }
+    if (afkSelectionRoot() || afkFindEnterWorld()) {
+      afkSay(`Entre no mundo com ${afk.current} antes de iniciar o AFK.`, 'warn'); return;
+    }
+    if (botFindConnectionLostPanel()) {
+      afkSay('Stonegy desconectado. Reconecte antes de iniciar AFK.', 'warn'); return;
+    }
+    if (botHuntAsyncRunning || botTrainingAsyncRunning || botBusy) {
+      afkSay('Há uma ação de Hunt/Treino em andamento. Aguarde concluir e tente Iniciar AFK.', 'warn'); return;
+    }
+    // Guardar configuracoes Solo sem exigir que o bot Solo esteja desligado.
+    // Se houver um ciclo antigo aguardando, substituimos somente o ESTADO
+    // desse ciclo; nunca criamos outro motor ou interrompemos uma acao async.
+    afk.solo={hunt:BOT_CONFIG.huntName,lure:BOT_CONFIG.lureModo,stamina:BOT_CONFIG.minStaminaHours};
+    afk.enabled=true; afk.phase='hunt'; afk.target=''; afk.stage='';
+    afk.selectedVerified=false; afk.selectionAttempts=0; afk.selectedAt=0;
+    afk.visited=[]; afk.attempt=0; afk.lastAction=Date.now();
+    if (!afkApplyProfile()) {afkStop('Perfil AFK inválido.');return;}
+    if (botGetFlow() && !botInHunt() && !botTreinando()) {
+      botClearFlow('AFK assumiu o ciclo Solo');
+    }
+    BOT_CONFIG.botAtivo=true;
+    botSaveConfig();
+    if (botTreinando()) {
+      afkSay(`AFK ativado para ${afk.current}. Treinamento detectado; verificando stamina.`, 'success');
+    } else if (botInHunt()) {
+      afkSay(`AFK ativado para ${afk.current}. Acompanhando a Hunt atual.`, 'success');
+    } else {
+      afkSay(`AFK ativado: ${afk.current} · iniciando venda e ciclo de Hunt.`, 'success');
+      botStartReturn(); // caminho identico ao botao Iniciar do motor Solo
+      if (!botGetFlow() && !botInHunt() && !botTreinando()) {
+        afkStop('Nao foi possivel abrir o ciclo Solo; verifique o status do jogo.');
+        return;
+      }
+    }
+    botUpdatePanel();
+  };
+  const afkGoSwitch = () => {
+    const sequence=afkSequence();
+    const index=sequence.findIndex(name=>afkNorm(name)===afkNorm(afk.current));
+    if (index<0) {afkStop('Personagem atual não está na fila selecionada.');return;}
+    const target=sequence[index+1];
+    if (!target) {
+      // A ultima pessoa da fila comecou seu treino; termina esta rodada.
+      // NUNCA clica em Finalizar Treino neste ponto.
+      afkStop('Rodada concluída. Último personagem permanece treinando.');
+      return;
+    }
+    if (!afk.visited.some(name=>afkNorm(name)===afkNorm(afk.current)))
+      afk.visited.push(afk.current);
+    if (afk.visited.some(name=>afkNorm(name)===afkNorm(target))) {
+      afkStop('Rotação repetida detectada; AFK interrompido.'); return;
+    }
+    afk.phase='switch'; afk.stage='menu'; afk.target=target;
+    afk.since=Date.now(); afk.lastAction=0; afk.attempt=0;
+    afk.selectionAttempts=0; afk.selectedVerified=false; afk.selectedAt=0;
+    afk.entryAttempts=0;afk.waitListNotified=false;
+    afk.selectionScreenSeen=false; afk.listWaitingSince=0;
+    BOT_CONFIG.botAtivo=false;botSaveConfig();
+    if (botGetFlow()) botClearFlow('treino AFK iniciado');
+    afkSay(`Treino ativo. Trocando ${afk.current} → ${target}.`);
+  };
+  // Diferentemente da função Solo, esta rotina NÃO espera horas e NÃO finaliza treino.
+  async function afkBeginTraining() {
+    if (botTreinando()) return true;
+    if (botInHunt()) {afkSay('Aguardando o jogo encerrar a hunt.');return false;}
+    let mode=botFindGameModePanel();
+    if (!mode) {
+      const play=botFindPlayButton();
+      if (!play || !botClick(play)) return false;
+      mode=await botEsperarAte(()=>botFindGameModePanel(),8000);
+      if (!mode) return false;
+    }
+    const training=botFindTrainingModeButton();
+    if (!training || !botClick(training)) {
+      afkSay('Botão Training não encontrado.', 'warn'); return false;
+    }
+    // Selecionar a skill correta antes do inicio; nunca presumir que Fist
+    // serve para todas as vocacoes. Para Knight, arma e escolha do usuario.
+    const own=afkProfile(afk.current);
+    const profession=afkProfiles.roster.find(c=>afkNorm(c.name)===afkNorm(afk.current))?.vocation?.toLowerCase()||'';
+    const autoSkill={monk:'Fist',paladin:'Distance',sorcerer:'Magic',druid:'Magic'}[profession];
+    const desired=own?.skill && own.skill!=='auto' ? own.skill : autoSkill;
+    if (!desired) {
+      afkSay(`Selecione SKILL TREINO para ${afk.current} (${profession||'vocação desconhecida'}).`, 'warn');
+      return false;
+    }
+    const skill=await botEsperarAte(()=>[...document.querySelectorAll('p')].find(p=>
+      !p.closest('#stonegy-tm-overlay') && botVisible(p) && botNormalize(p.textContent||'')===botNormalize(desired)
+    ),6500);
+    if (!skill || !botClick(skill.parentElement||skill)) {
+      afkSay(`Skill ${desired} não localizada na tela Training.`, 'warn');
+      return false;
+    }
+    await botJitter(250,500);
+    const start=await botEsperarAte(()=>botFindStartTrainingButton(),6500);
+    if (!start) {
+      afkSay('A tela Training abriu, mas INICIAR TREINO não apareceu.', 'warn');
+      return false;
+    }
+    afkSay('INICIAR TREINO encontrado; confirmando início.');
+    await botJitter(400,900);
+    if (!botClick(start)) {
+      afkSay('Não foi possível clicar em INICIAR TREINO.', 'warn');
+      return false;
+    }
+    const started=await botEsperarAte(()=>botFindFinalizarTreinoButton(),12000);
+    if (!started) afkSay('Clique realizado, mas Finalizar Treino não apareceu; sem trocar.', 'warn');
+    return Boolean(started);
+  }
+  function afkHandleTrainingStep() {
+    if (!afk.enabled || afk.phase!=='hunt' || botTrainingAsyncRunning) return;
+    botTrainingAsyncRunning=true;
+    afkSay('Iniciando treinamento sem esperar sua conclusão.');
+    afkBeginTraining().then(ok=>{
+      if (!afk.enabled) return;
+      if (ok) afkGoSwitch();
+      else afkStop('Treino não confirmado: '+afk.message);
+    }).catch(e=>afkStop('Erro ao iniciar treino: '+String(e?.message||e).slice(0,80)))
+      .finally(()=>{botTrainingAsyncRunning=false;});
+  }
+  // Controle exato do Stonegy; nao usar botClick generico no icone de engrenagem.
+  // O clique generico pode subir ate um contêiner grande e acionar outro edificio.
+  const afkNativeClick = element => {
+    if (!element || !botVisible(element) || element.closest('#stonegy-tm-overlay')) return false;
+    try { element.click(); return true; } catch (_) { return false; }
+  };
+  const afkFindGear = () => {
+    const matches=[...document.querySelectorAll('svg[viewBox="0 0 26 26"]')].filter(svg => {
+      if (!botVisible(svg) || svg.closest('#stonegy-tm-overlay')) return false;
+      const paths=[...svg.querySelectorAll('path[d]')];
+      return paths.some(p => (p.getAttribute('d')||'').startsWith('M22.7008 13.4392'));
+    });
+    // SVGElement nao implementa .click() em todos os navegadores.
+    // Usar exclusivamente o pequeno elemento HTML pai do SVG.
+    return matches.length===1 ? matches[0].closest('.css-1l740qp') || matches[0].parentElement : null;
+  };
+  const afkFindSwitchMenuOption = () => {
+    const candidates=[...document.querySelectorAll('p')].filter(p =>
+      !p.closest('#stonegy-tm-overlay') && botVisible(p) &&
+      afkNorm(p.textContent)==='TROCAR PERSONAGEM');
+    // Nao clique em textos homonimos fora do menu das configuracoes.
+    const opts=candidates.filter(p=>p.closest('.css-1gb1rig'));
+    return opts.length===1 ? opts[0] : null;
+  };
+  const afkFindEnterWorld = () => {
+    const buttons=[...document.querySelectorAll('h5')].filter(h =>
+      !h.closest('#stonegy-tm-overlay') && botVisible(h) &&
+      afkNorm(h.textContent)==='ENTRAR NO MUNDO');
+    if (buttons.length!==1) return null;
+    const h=buttons[0];
+    return h.closest('.highlight-animation') || h;
+  };
+  // A tela de personagens pode exibir ENTRAR NO MUNDO com o PRIMEIRO
+  // personagem ja selecionado. Um clique enviado nao confirma a selecao.
+  // O cartao realmente ativo tem background linear-gradient no Stonegy.
+  const afkSelectedCard = cards => {
+    const selected=cards.filter(({node})=>{
+      const inline=node.style.backgroundImage || node.style.background || '';
+      let computed='';
+      try { computed=getComputedStyle(node).backgroundImage || ''; } catch (_) {}
+      return /(?:linear|radial)-gradient\(/i.test(inline+' '+computed)
+        || node.getAttribute('aria-selected')==='true'
+        || node.getAttribute('data-selected')==='true'
+        || node.getAttribute('data-state')==='selected';
+    });
+    // A tela da Stonegy abre com o primeiro personagem destacado.
+    // Nunca inferir selecao pela posicao do cartao ou por click enviado.
+    return selected.length===1 ? selected[0] : null;
+  };
+  const afkClickTargetCard = (card, expectedName) => {
+    const node=card?.node;
+    if (!(node instanceof HTMLElement) || !node.isConnected || node.closest('#stonegy-tm-overlay')) return false;
+    const headings=[...node.querySelectorAll('h5')];
+    if (afkNorm(headings[0]?.textContent)!==afkNorm(expectedName) ||
+        !/Level\s+\d+\s+(KNIGHT|SORCERER|DRUID|PALADIN|MONK)\b/i.test(headings[1]?.textContent||'')) return false;
+    // O React escuta onClick neste proprio MuiBox (css-16d0rbh).
+    // Ao contrario de botClick(), nao sobe na hierarquia ate outro cursor:pointer.
+    try {node.click(); return true;} catch (_) {return false;}
+  };
+  const afkDriveSwap = () => {
+    if (!afk.enabled || afk.phase!=='switch') return;
+    const now=Date.now();
+    if (now-afk.since>90000) {afkStop('Troca excedeu 90 segundos; AFK pausado.');return;}
+    if (botFindConnectionLostPanel()) return;
+    // Manter o alvo congelado durante a navegacao. Jamais regressar
+    // para o primeiro personagem por causa do destaque padrao do jogo.
+    const seq=afkSequence();
+    const pos=seq.findIndex(name=>afkNorm(name)===afkNorm(afk.current));
+    if (pos<0 || afkNorm(seq[pos+1])!==afkNorm(afk.target)) {
+      afkStop('Ordem mudou no meio da troca; AFK pausado.');return;
+    }
+    const cards=afkFindCards();
+    const world=afkFindEnterWorld();
+    // A presenca dos cartoes tem prioridade ABSOLUTA sobre qualquer etapa
+    // pendente: enquanto a lista existir, nunca clicar na engrenagem.
+    if (cards.length>=2) {
+      const matches=cards.filter(c=>afkNorm(c.name)===afkNorm(afk.target));
+      if (matches.length!==1) {afkStop('Nome do proximo personagem ausente ou repetido: '+afk.target);return;}
+      const selected=afkSelectedCard(cards);
+      if (afk.stage==='verify') {
+        if (now-afk.lastAction<6000) return;
+        afk.entryAttempts=(afk.entryAttempts||0)+1;
+        if (afk.entryAttempts>2) {
+          afkStop('ENTRAR NO MUNDO nao abriu o jogo. Nao foi selecionado outro personagem.');return;
+        }
+        afk.selectedVerified=false;afk.selectedAt=0;
+        afk.stage='selection';afk.lastAction=0;
+        afkSay(`Tela de personagens ainda aberta; conferindo ${afk.target} novamente.`);
+        return;
+      }
+      if (selected && afkNorm(selected.name)===afkNorm(afk.target)) {
+        if (!afk.selectedVerified) {
+          afk.selectedVerified=true;afk.selectedAt=now;afk.stage='entry';
+          afkSay(`${afk.target} destacado na lista. Aguardando confirmação estável.`);
+          return;
+        }
+        if (now-afk.selectedAt<900) return;
+        if (!world) {
+          if (now-afk.selectedAt>15000) afkStop('ENTRAR NO MUNDO nao encontrado para '+afk.target);
+          return;
+        }
+        if (now-afk.lastAction<1100) return;
+        if (!afkNativeClick(world)) {afkStop('Nao foi possivel clicar ENTRAR NO MUNDO.');return;}
+        afk.stage='verify';afk.lastAction=now;
+        afkSay(`ENTRAR NO MUNDO clicado com ${afk.target} selecionado; aguardando o jogo.`);
+        afkPersist();return;
+      }
+      // Nao ha confirmacao de selecao. Clicar SOMENTE no cartao com nome exato.
+      afk.selectedVerified=false;afk.selectedAt=0;
+      if (now-afk.lastAction<2400) return;
+      if ((afk.selectionAttempts||0)>=3) {
+        afkStop(`O Stonegy nao selecionou ${afk.target} em 3 cliques. Parei para evitar voltar a ${afk.current}.`);return;
+      }
+      if (!afkClickTargetCard(matches[0],afk.target)) {
+        afkStop('Falha ao clicar no cartao exato de '+afk.target);return;
+      }
+      afk.stage='selection';afk.selectionAttempts=(afk.selectionAttempts||0)+1;
+      afk.lastAction=now;
+      afkSay(`Cartao ${afk.target} clicado (${afk.selectionAttempts}/3). Selecionado antes: ${selected?.name||'indefinido'}.`);
+      afkPersist();return;
+    }
+    // Se a lista desapareceu depois do clique em ENTRAR NO MUNDO,
+    // aguardar a interface normal carregar antes de gravar a identidade.
+    if (afk.stage==='verify') {
+      if (now-afk.lastAction<1600) return;
+      if (!(botFindPlayButton() || botFindGameModePanel() || botTreinando())) {
+        if (now-afk.lastAction>15000) afkStop('Entrada no mundo nao confirmada; AFK pausado.');
+        return;
+      }
+      if (!afk.selectedVerified) {afkStop('Entrada sem confirmar selecao; AFK pausado.');return;}
+      const entering=afk.target;
+      afk.current=entering;afk.target='';afk.stage='';afk.phase='hunt';
+      afk.selectionAttempts=0;afk.selectedAt=0;afk.selectedVerified=false;
+      afk.detectedSource='entrada apos selecionar cartao';
+      if (!afkApplyProfile()) {afkStop('Hunt nao configurada para '+afk.current);return;}
+      afkSay(`Personagem atual atualizado para ${afk.current}; iniciando venda.`, 'success');
+      afkPersist();
+      if (!botTreinando()) botStartReturn();
+      return;
+    }
+    if (afk.stage==='wait-list') {
+      if (now-afk.lastAction>20000) afkStop('Lista nao apareceu apos Trocar Personagem. Sem repetir engrenagem.');
+      return;
+    }
+    // Uma vez na selecao, jamais voltar ao menu nem clicar na engrenagem.
+    if (afk.stage==='selection' || afk.stage==='entry' || afk.selectionScreenSeen) {
+      if (!afk.listWaitingSince) afk.listWaitingSince=now;
+      if (now-afk.listWaitingSince>15000)
+        afkStop('Lista sumiu antes de confirmar entrada. AFK pausado.');
+      return;
+    }
+    if (now-afk.lastAction<1600) return;
+    if (afk.attempt>=3) {afkStop('Nao consegui abrir Trocar Personagem.');return;}
+    const option=afkFindSwitchMenuOption();
+    if (option) {
+      if (!afkNativeClick(option)) {afkStop('Falha no menu Trocar Personagem.');return;}
+      afk.stage='wait-list';afk.selectionScreenSeen=true;
+      afkSay(`Abrindo lista para selecionar ${afk.target}.`);
+    } else {
+      const gear=afkFindGear();
+      if (!gear || !afkNativeClick(gear)) {afkStop('Nao foi possivel abrir a engrenagem exata.');return;}
+      afkSay('Abrindo a engrenagem do jogo.');
+    }
+    afk.lastAction=now;afk.attempt++;afkPersist();
+  };
+  const afkTick = () => {
+    afkScanRoster();
+    if (!afk.enabled) return;
+    if (window.__emerickPartyGate?.enabled) {afkStop('Party ativada; AFK interrompido.');return;}
+    if (afk.phase==='switch') {
+      if (!afkBusy) {
+        try { afkDriveSwap(); }
+        catch (error) { afkStop('Erro na selecao: '+String(error?.message||error).slice(0,140)); }
+      }
+      return;
+    }
+    if (afk.phase!=='hunt' || botHuntAsyncRunning || botTrainingAsyncRunning || botBusy) return;
+    // Recupera o motor caso o navegador tenha recarregado com AFK ativo,
+    // mas BOT_CONFIG.botAtivo desligado. Nao reinicia outra Hunt no meio.
+    if (!BOT_CONFIG.botAtivo && !afkSelectionRoot() && !afkFindEnterWorld() &&
+        (botGetFlow() || botInHunt() || botTreinando() || botFindPlayButton())) {
+      BOT_CONFIG.botAtivo=true;
+      botSaveConfig();
+      afkSay(`AFK retomado para ${afk.current}.`, 'success');
+    }
+    // Edicoes feitas com o AFK ativo sao aplicadas somente na fronteira
+    // entre ciclos, nunca no meio da Hunt, venda ou treinamento.
+    if (!botInHunt() && !botTreinando() && !botGetFlow()) {
+      const active=afkProfile(afk.current);
+      if (active?.hunt?.trim() && (
+        BOT_CONFIG.huntName!==active.hunt.trim() ||
+        BOT_CONFIG.lureModo!==(active.lure==='off'?'off':'max') ||
+        BOT_CONFIG.minStaminaHours!==Number(active.stamina)
+      )) {
+        afkApplyProfile();
+        afkSay(`Configuracoes atualizadas para ${afk.current}; usando no proximo ciclo.`, 'success');
+      }
+    }
+    if (botGetFlow()?.etapa==='AGUARDANDO_AFK_TREINO') return;
+    if (botTreinando()) {
+      const stamina=botReadStamina();
+      const profile=afkProfile(afk.current);
+      if (stamina===null || !profile) {afkSay('Treinando; aguardando leitura de stamina.');return;}
+      if (stamina <= Number(profile.stamina)) {afkGoSwitch();return;}
+      // Retorno a personagem treinando com stamina suficiente: finalizar treino para caçar.
+      if (afkBusy || Date.now()-afk.lastAction<3500) return;
+      afkBusy=true;
+      const finish=botFindFinalizarTreinoButton();
+      if (finish && botClick(finish)) {
+        afk.lastAction=Date.now();afkSay('Stamina recuperada; finalizando treino para voltar à Hunt.');
+        setTimeout(()=>{afkBusy=false;if(afk.enabled && !botTreinando() && !botGetFlow())botStartReturn();},1800);
+      } else {afkBusy=false;afkStop('Não foi possível finalizar treino antigo.');}
+      return;
+    }
+    if (!BOT_CONFIG.botAtivo && !botGetFlow() && !botInHunt()) {
+      if (!afkApplyProfile()) {afkStop('Perfil de Hunt ausente.');return;}
+      botStartReturn();
+    }
+  };
+  const afkBind = root => {
+    const current=root.querySelector('[data-afk-current]');
+    const hunt=root.querySelector('[data-afk-hunt]');
+    const lure=root.querySelector('[data-afk-lure]');
+    const stamina=root.querySelector('[data-afk-stamina]');
+    const queue=root.querySelector('[data-afk-queue]');
+    const add=root.querySelector('[data-afk-add]');
+    const saveEditing=() => {
+      if (!afk.editing) return;
+      const profile=afkProfile(afk.editing);
+      if (!profile) return;
+      profile.hunt=hunt.value.trim();
+      profile.lure=lure.value==='off'?'off':'max';
+      profile.stamina=Number(stamina.value);
+      profile.skill=root.querySelector('[data-afk-skill]')?.value||'auto';
+      afkPersist();
+    };
+    const setEditing=name=>{
+      if (!name) return;
+      // Nunca altera afk.current: selecionar no editor NÃO troca no jogo.
+      saveEditing();
+      const found=afkQueueSync().find(row=>afkNorm(row.name)===afkNorm(name));
+      if (!found) return;
+      afk.editing=found.name;
+      afkPersist();afkRender(root,true);
+    };
+    current.addEventListener('change',()=>{
+      if (afk.enabled) return;
+      afk.current=current.value.trim();
+      // Atualizar apenas a identidade declarada do personagem NO JOGO.
+      // Não cria perfil nem marca personagem automaticamente.
+      afkPersist();afkRender(root);
+    });
+    current.addEventListener('blur',()=>{
+      if (afk.enabled) return;
+      afk.current=current.value.trim();afkPersist();
+    });
+    for (const field of [hunt,lure,stamina,root.querySelector('[data-afk-skill]')].filter(Boolean)) {
+      field.addEventListener('input',saveEditing);
+      field.addEventListener('change',()=>{saveEditing();afkRender(root);});
+    }
+    hunt.addEventListener('blur',()=>{saveEditing();afkRender(root);});
+    const addCharacter=()=>{
+      if (afk.enabled && afk.phase==='switch') {
+        afkSay('Aguarde concluir a troca para adicionar outro personagem.', 'warn');return;
+      }
+      const name=String(add.value||'').trim();
+      if (!name) {afkSay('Informe o nome do personagem que deseja adicionar.','warn');afkRender(root);return;}
+      if (name.length>60) {afkSay('Nome muito longo.','warn');afkRender(root);return;}
+      const existing=afkQueueSync().find(x=>afkNorm(x.name)===afkNorm(name));
+      if (existing) {
+        afkSay(`${existing.name} já consta na lista. Selecione-o para editar.`);
+        add.value='';setEditing(existing.name);return;
+      }
+      afkProfile(name);
+      afkQueueSync();
+      add.value='';
+      afkSay(`${name} adicionado. Defina sua Hunt e marque para participar.`,'success');
+      setEditing(name);
+    };
+    root.querySelector('[data-afk-add-btn]').addEventListener('click',addCharacter);
+    add.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addCharacter();}});
+    root.querySelector('[data-afk-scan]').addEventListener('click',()=>{
+      if (afk.enabled && afk.phase==='switch') return;
+      const found=afkScanRoster();
+      if (!found.length) afkSay('Para detectar automaticamente, abra Engrenagem → Trocar Personagem uma vez. Ou adicione os nomes manualmente.','warn');
+      else afkSay(`${found.length} personagens encontrados. Selecione qualquer um para configurar.`,'success');
+      afkRender(root,true);
+    });
+    queue.addEventListener('change',event=>{
+      const check=event.target.closest?.('[data-afk-include]');
+      if (!check) return;
+      const name=check.closest('[data-afk-row]')?.dataset.afkRow;
+      const list=afkQueueSync();
+      const index=list.findIndex(row=>afkNorm(row.name)===afkNorm(name));
+      if (!afkQueueCanEdit(list,index)) {afkRender(root,true);return;}
+      const row=list[index];
+      row.enabled=check.checked;
+      afkPersist();afkRender(root,true);
+    });
+    queue.addEventListener('click',event=>{
+      const pick=event.target.closest?.('[data-afk-pick]');
+      if (pick) {setEditing(pick.closest('[data-afk-row]')?.dataset.afkRow);return;}
+      const button=event.target.closest?.('[data-afk-move]');
+      if (!button) return;
+      saveEditing();
+      const direction=button.dataset.afkMove==='up'?-1:1;
+      const name=button.closest('[data-afk-row]')?.dataset.afkRow;
+      const list=afkQueueSync();
+      const pos=list.findIndex(row=>afkNorm(row.name)===afkNorm(name));
+      let other=pos+direction;
+      if (pos<0) return;
+      if (list[pos].enabled) while (other>=0 && other<list.length && !list[other].enabled)
+        other+=direction;
+      if (other<0 || other>=list.length ||
+          !afkQueueCanEdit(list,pos) || !afkQueueCanEdit(list,other)) return;
+      [list[pos],list[other]]=[list[other],list[pos]];
+      afkPersist();afkRender(root,true);
+    });
+    root.querySelector('[data-afk-toggle]').addEventListener('click',()=>{
+      if (afk.enabled) afkStop('AFK parado manualmente.');
+      else {
+        saveEditing();
+        // Campo atual é a identidade declarada, NÃO o perfil que está em edição.
+        afk.current=current.value.trim();
+        afkPersist();
+        afkStart();
+      }
+      afkRender(root,true);
+    });
+    afkQueueSync();
+    if (!afk.editing && afkProfiles.queue.length) afk.editing=afkProfiles.queue[0].name;
+    afkRender(root,true);
+  };
+  const afkRender = (root,force=false) => {
+    if (!root) return;
+    const active=root.activeElement;
+    const list=afkQueueSync();
+    const editing=afkNorm(afk.editing);
+    const selected=list.find(row=>afkNorm(row.name)===editing);
+    // Se a lista mudou, usar primeiro perfil disponivel sem mudar o char NO JOGO.
+    if (!selected && list.length) {
+      afk.editing=list[0].name;
+      afkPersist();
+    }
+    const profile=afkProfile(afk.editing);
+    const actual=root.querySelector('[data-afk-current]');
+    if (actual && (force || actual!==active) && actual.value!==afk.current) actual.value=afk.current;
+    if (actual) {
+      // A entrada confirmada atualiza afk.current automaticamente. Um perfil
+      // selecionado no editor nao corresponde ao personagem autenticado.
+      actual.disabled=afk.enabled;
+      actual.title=afk.enabled ? 'Identidade atualizada automaticamente na troca; não editável durante AFK' :
+        'Antes da primeira troca, confirme o personagem; as próximas entradas atualizam este campo';
+    }
+    for (const [field,value] of [
+      ['hunt',profile?.hunt||''],
+      ['lure',profile?.lure==='off'?'off':'max'],
+      ['stamina',String(profile?.stamina??1)],
+      ['skill',profile?.skill||'auto']
+    ]) {
+      const el=root.querySelector('[data-afk-'+field+']');
+      if (!el) continue;
+      if ((force || el!==active) && el.value!==value) el.value=value;
+      // Edicao dos perfis nunca depende de AFK estar ligado.
+      el.disabled=!profile;
+    }
+    const heading=root.querySelector('[data-afk-editing]');
+    if (heading) heading.textContent=afk.editing||'Selecione um personagem';
+    const vocation=root.querySelector('[data-afk-vocation]');
+    const known=afkProfiles.roster.find(x=>afkNorm(x.name)===afkNorm(afk.editing));
+    if (vocation) vocation.textContent=known?.vocation?.toUpperCase()||'PERFIL';
+    const hint=root.querySelector('[data-afk-editor-hint]');
+    if (hint) hint.textContent=profile
+      ? (afk.enabled
+        ? 'Edicoes salvas. O personagem atual usa as mudancas no proximo ciclo seguro.'
+        : 'Hunt, Lure, Stamina e Skill salvos automaticamente para este personagem.')
+      : 'Adicione ou selecione um personagem para configurar.';
+    const data=root.querySelector('[data-afk-names]');
+    if (data) {
+      const names=afkNames();
+      const previous=[...data.children].map(x=>x.value).join('|');
+      if (names.join('|')!==previous) data.replaceChildren(...names.map(name=>{
+        const option=document.createElement('option');option.value=name;return option;
+      }));
+    }
+    const queue=root.querySelector('[data-afk-queue]');
+    if (queue) {
+      const signature=JSON.stringify([list,afk.enabled,afk.phase,afk.current,afk.visited,afk.editing,list.map(x=>{
+        const p=afkProfiles.profiles[afkNorm(x.name)];
+        const v=afkProfiles.roster.find(c=>afkNorm(c.name)===afkNorm(x.name));
+        return [p?.hunt||'',v?.vocation||''];
+      })]);
+      if (queue.dataset.signature!==signature) {
+        queue.dataset.signature=signature;
+        queue.replaceChildren(...(list.length?list.map((row,index)=>{
+          const el=document.createElement('div');
+          el.className='afk-queue-row';
+          el.dataset.afkRow=row.name;
+          el.dataset.enabled=String(row.enabled);
+          el.dataset.selected=String(afkNorm(row.name)===afkNorm(afk.editing));
+          const check=document.createElement('input');
+          check.type='checkbox';check.dataset.afkInclude='true';
+          check.checked=row.enabled;check.disabled=!afkQueueCanEdit(list,index);
+          check.title=row.enabled?'Ignorar na rotação':'Incluir na rotação';
+          const pick=document.createElement('button');
+          pick.type='button';pick.className='afk-queue-pick';pick.dataset.afkPick='true';
+          // Mesmo durante o AFK, clicar no nome abre seu editor, sem trocar no jogo.
+          pick.disabled=false;
+          const main=document.createElement('strong');main.textContent=row.name;
+          const secondary=document.createElement('small');
+          const info=afkProfiles.profiles[afkNorm(row.name)];
+          const voc=afkProfiles.roster.find(c=>afkNorm(c.name)===afkNorm(row.name))?.vocation;
+          secondary.textContent=[voc?String(voc).toUpperCase():null,info?.hunt?.trim()||'Hunt não configurada'].filter(Boolean).join(' · ');
+          pick.append(main,secondary);
+          el.append(check,pick);
+          const arrows=document.createElement('div');arrows.className='afk-queue-arrows';
+          const previousSelected=list.slice(0,index).some(item=>item.enabled);
+          const nextSelected=list.slice(index+1).some(item=>item.enabled);
+          for (const [direction,arrow,blocked] of [
+            ['up','↑',row.enabled?!previousSelected:index===0],
+            ['down','↓',row.enabled?!nextSelected:index===list.length-1]
+          ]) {
+            const button=document.createElement('button');button.type='button';
+            button.dataset.afkMove=direction;button.textContent=arrow;
+            button.title=direction==='up'?'Subir na ordem':'Descer na ordem';
+            const destination=direction==='up'
+              ? (row.enabled ? list.findLastIndex((x,j)=>j<index&&x.enabled) : index-1)
+              : (row.enabled ? list.findIndex((x,j)=>j>index&&x.enabled) : index+1);
+            button.disabled=blocked || !afkQueueCanEdit(list,index) || !afkQueueCanEdit(list,destination);
+            arrows.append(button);
+          }
+          el.append(arrows);
+          return el;
+        }):[(()=>{
+          const el=document.createElement('p');el.className='afk-queue-empty';
+          el.textContent='Abra Trocar Personagem para ler a lista, ou adicione os nomes abaixo.';
+          return el;
+        })()]));
+      }
+    }
+    const add=root.querySelector('[data-afk-add]');
+    if (add) add.disabled=afk.enabled && afk.phase==='switch';
+    const addButton=root.querySelector('[data-afk-add-btn]');
+    if (addButton) addButton.disabled=afk.enabled && afk.phase==='switch';
+    const scan=root.querySelector('[data-afk-scan]');
+    if (scan) scan.disabled=afk.enabled && afk.phase==='switch';
+    const status=root.querySelector('[data-afk-status]');
+    if (status) {
+      const phase=afk.enabled ? (afk.phase==='switch'?'TROCANDO PERSONAGEM':'HUNT ATIVA') : 'DESLIGADO';
+      status.textContent=`${phase} · ${afk.message}`;
+      status.dataset.running=String(afk.enabled);
+    }
+    const toggle=root.querySelector('[data-afk-toggle]');
+    if (toggle) {
+      toggle.textContent=afk.enabled?'■ Parar AFK':'▶ Iniciar AFK';
+      toggle.dataset.on=String(afk.enabled);
+      toggle.title=afk.enabled?'Clique para interromper o modo AFK':'Inicia a Hunt diretamente, sem ativar a aba Hunt';
+    }
+    const sequence=afkSequence();
+    const order=root.querySelector('[data-afk-order]');
+    if (order) order.textContent=sequence.length?'Ordem: '+sequence.join(' → '):'Nenhum personagem selecionado para jogar.';
+    const roster=root.querySelector('[data-afk-roster]');
+    if (roster) roster.textContent=sequence.length
+      ? `${sequence.length} incluído(s) · ${list.length-sequence.length} ignorado(s). Clique no nome para editar sem entrar no jogo.`
+      : 'Marque os personagens participantes. Os desmarcados não entram na rotação.';
+  };
+
+  // No reload que ocorre na troca, nunca religar o motor enquanto o menu
+  // de seleção do próximo personagem ainda está aberto.
+  if (afk.enabled && afk.phase==='switch') {
+    BOT_CONFIG.botAtivo=false;
+    botSaveConfig();
+  } else if (afk.enabled && afk.phase==='hunt') {
+    afkApplyProfile();
+  }
+
   const botKeepActive = () => { if (!BOT_CONFIG.antiInatividadeAtivo || document.readyState === "unloading" || Date.now() - botLastActivity < 5000) return; botLastActivity = Date.now(); const x = Math.max(1, Math.floor(innerWidth / 2)), y = Math.max(1, Math.floor(innerHeight / 2)); const t = document.elementFromPoint(x, y) || document.body; if (!t) return; t.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, view: window, clientX: x, clientY: y })); t.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, view: window, clientX: x, clientY: y })); };
   function botMonitorHunt() {
     // O lider pode estar em uma aba sem foco: continuar monitorando o ciclo.
@@ -4224,6 +5194,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     setInterval(botResumeLoop, BOT_RESUME_SCAN_MS);
     setInterval(botMonitorHunt, 500);
     setInterval(botPartyPostHuntTick, 500);
+    setInterval(afkTick, 900);
     setInterval(botKeepActive, 120000);
     setInterval(botUpdatePanel, 1000);
     setInterval(() => { if (botSellPanelOpen()) botApplyVisualMarkers(); }, 500);
@@ -4270,7 +5241,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.27",
+    version: "6.2.43",
+    afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
     getFlow: botGetFlow,

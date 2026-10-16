@@ -10,7 +10,7 @@
 
     const style = document.createElement('style');
     style.textContent = `
-      .tabs:has([data-view="party"]){display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+      .tabs:has([data-view="party"]){display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
       .tabs [data-view="party"]{min-width:0;font-size:10px}
       .em-party{padding:11px;overflow-y:auto;min-height:0;max-height:calc(100dvh - 180px);font:11px/1.45 system-ui,sans-serif;color:#dbe2f3}
       .em-party[hidden],.em-party [hidden]{display:none!important}
