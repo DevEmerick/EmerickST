@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.55
+// // @version      6.2.56
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -4528,30 +4528,42 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   // O container do avatar pode ter dimensoes 0 (arte absoluta), portanto
   // nao descartamos a identidade apenas por offsetWidth/offsetHeight.
   const afkLiveIdentity = () => {
+    // Identidade nativa: independente de zoom e carregamento do level.
+    // Nunca identificar personagem pela posicao na fila.
     const found=[];
     for (const avatar of document.querySelectorAll('[data-guide="character-profile-avatar"]')) {
-      if (avatar.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
-      const box=avatar.parentElement;
-      const levelBox=[...(box?.children||[])].find(el=>el!==avatar && /^\d{1,4}$/.test((el.textContent||'').trim()) && el.querySelector('p'));
-      const info=box?.nextElementSibling;
-      const headings=[...(info?.querySelectorAll('h5')||[])];
-      if (headings.length!==2) continue;
-      const vocation=(headings[0].textContent||'').trim().toLowerCase();
-      const name=(headings[1].textContent||'').trim();
-      const level=Number((levelBox?.textContent||'').trim());
-      if (!/^(monk|knight|paladin|sorcerer|druid)$/.test(vocation) ||
-          !name || name.length>64 || !Number.isSafeInteger(level) || level<1 || level>9999) continue;
-      found.push({name,level,vocation});
+      if (!avatar.isConnected || avatar.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
+      const bases=[avatar.parentElement,avatar.parentElement?.parentElement].filter(Boolean);
+      for (const base of bases) {
+        if (base.closest('[hidden],[aria-hidden="true"]')) continue;
+        const info=base.nextElementSibling;
+        if (!info || info.closest('[hidden],[aria-hidden="true"]')) continue;
+        const headings=[...info.querySelectorAll('h5')];
+        if (headings.length!==2) continue;
+        const vocation=String(headings[0].textContent||'').trim().toLowerCase();
+        const name=String(headings[1].textContent||'').trim();
+        if (!/^(monk|knight|paladin|sorcerer|druid)$/.test(vocation) ||
+            name.length<2 || name.length>64) continue;
+        const levels=[...base.querySelectorAll('p')]
+          .map(p=>String(p.textContent||'').trim())
+          .filter(t=>/^\d{1,4}$/.test(t))
+          .map(Number).filter(n=>n>=1&&n<=9999);
+        const level=levels.length===1?levels[0]:null;
+        found.push({name,vocation,level});
+        break;
+      }
     }
-    // Se houver mais de um painel, usar apenas o que corresponde a identidade
-    // ja confirmada pelo motor (nunca selecionar o primeiro arbitrariamente).
-    if (found.length===1) return found[0];
-    const matching=found.filter(x=>afk.current && afkNorm(x.name)===afkNorm(afk.current));
-    return matching.length===1?matching[0]:null;
+    if (!found.length) return null;
+    const keys=new Set(found.map(x=>afkNorm(x.name)+'|'+x.vocation));
+    if (keys.size!==1) return null;
+    const levels=[...new Set(found.map(x=>x.level).filter(Number.isInteger))];
+    if (levels.length>1) return null;
+    return {...found[0],level:levels.length===1?levels[0]:null};
   };
   const afkLevel = name => {
     const live=afkLiveIdentity();
-    if (live) return afkNorm(live.name)===afkNorm(name)?live.level:null;
+    if (live && afkNorm(live.name)!==afkNorm(name)) return null;
+    if (live && Number.isInteger(live.level)) return live.level;
     const saved=afkProfiles.roster.find(r=>afkNorm(r.name)===afkNorm(name))?.level;
     const cached=Number.isSafeInteger(saved) && saved>=1 && saved<=9999 ? saved : null;
     // A lista SEUS PERSONAGENS e confiavel APOS uma entrada confirmada.
@@ -4610,7 +4622,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       afkLevelProbe='';return false;
     }
     const live=afkLiveIdentity();
-    if (!live || afkNorm(live.name)!==afkNorm(afk.current)) {afkLevelProbe='';return false;}
+    if (!live || !Number.isInteger(live.level) || afkNorm(live.name)!==afkNorm(afk.current)) {afkLevelProbe='';return false;}
     const profile=afkProfile(afk.current), rows=afkHunts(profile);
     if (!afkValidHunts(profile) || rows.length<2) return false;
     const chosen=afkHuntFor(afk.current);
@@ -4853,36 +4865,59 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     if (!sequence.length) {
       afkSay('Marque os personagens na Ordem de execução antes de iniciar.', 'warn'); return;
     }
-    // Usar a identidade nativa do jogo quando ela estiver disponivel.
-    // Nunca exigir que o primeiro da fila seja o personagem logado.
+    // Confirmar o personagem real antes de iniciar uma automacao.
+    const onSelection=Boolean(afkSelectionRoot() || afkFindEnterWorld());
     const live=afkLiveIdentity();
-    const inWorld=!afkSelectionRoot() && !afkFindEnterWorld() &&
-      Boolean(botFindPlayButton() || botFindGameModePanel() ||
-        botInHunt() || botTreinando());
+    const inWorld=!onSelection && Boolean(
+      live || botFindPlayButton() || botFindGameModePanel() ||
+      botInHunt() || botTreinando()
+    );
+
+    if (onSelection) {
+      // Recuperar somente quando a lista nativa ja esta aberta.
+      if (afkSelectionRoot())
+        afkBeginRecovery('lista de personagens ja aberta');
+      else
+        afkSay('Entre no mundo antes de iniciar o AFK.','warn');
+      return;
+    }
 
     if (live && inWorld && !afk.pendingLogin) {
-      const match=afkProfiles.roster.filter(x=>
-        afkNorm(x.name)===afkNorm(live.name));
+      const matches=afkProfiles.roster.filter(r=>
+        afkNorm(r.name)===afkNorm(live.name));
 
-      if (match.length!==1) {
-        afkSay(`Personagem ${live.name} nao consta na lista reconhecida. Nao vou trocar nem iniciar outra Hunt.`, 'warn');
+      if (matches.length!==1 ||
+          afkNorm(matches[0].vocation)!==afkNorm(live.vocation)) {
+        afkSay('Perfil nativo diverge da lista salva. AFK nao iniciou.','warn');
         return;
       }
 
-      if (afkNorm(match[0].vocation)!==afkNorm(live.vocation)) {
-        afkBeginRecovery('vocacao nativa diverge do cadastro');
-        return;
-      }
-
-      afk.current=match[0].name;
+      afk.current=matches[0].name;
       afk.currentVocation=live.vocation;
       afk.detectedSource='entrada confirmada pelo perfil nativo';
       afk.detectedAt=Date.now();
+      afk.pendingLogin=null;
       afkPersist();
 
-    } else if (!afk.current?.trim() || afk.pendingLogin ||
+    } else if (!inWorld || !afk.current?.trim() ||
+               afk.pendingLogin ||
                !String(afk.detectedSource||'').startsWith('entrada')) {
-      afkBeginRecovery('personagem atual ainda nao confirmado');
+
+      // Aguardar o React montar o perfil. Nunca clicar na engrenagem.
+      if (afk.phase!=='identify') {
+        afk.enabled=true;
+        afk.phase='identify';
+        afk.stage='waiting-profile';
+        afk.since=Date.now();
+        afk.target='';
+        BOT_CONFIG.botAtivo=false;
+        botSaveConfig();
+      }
+
+      afkSay(
+        'Identificando personagem. Aguardando ate 20s sem acionar engrenagem.',
+        'warn'
+      );
       return;
     }
 
@@ -4890,7 +4925,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       afkNorm(n)===afkNorm(afk.current));
 
     if (startingAt<0) {
-      afkSay(`O personagem ${afk.current} nao esta marcado na fila. Escolha um habilitado antes de iniciar.`, 'warn');
+      afkSay(
+        `Personagem ${afk.current} nao marcado na fila. Nada executado.`,
+        'warn'
+      );
       return;
     }
 
@@ -5094,6 +5132,29 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       }
       return;
     }
+    // Detectar perfil mesmo quando a extensao carrega depois do login.
+    const live=afkLiveIdentity();
+    if (!afk.pendingLogin && live && !afkFindEnterWorld()) {
+      const matches=afkProfiles.roster.filter(r=>
+        afkNorm(r.name)===afkNorm(live.name) &&
+        afkNorm(r.vocation)===afkNorm(live.vocation));
+      if (matches.length===1) {
+        if (afk.enabled && afk.phase==='hunt' && afk.current &&
+            afkNorm(afk.current)!==afkNorm(live.name)) {
+          afkStop('Perfil nativo mudou durante o AFK. Pausado sem trocar personagem.');
+          return;
+        }
+        if (!afk.enabled &&
+            (afkNorm(afk.current)!==afkNorm(live.name) ||
+             !String(afk.detectedSource||'').startsWith('entrada'))) {
+          afk.current=matches[0].name;
+          afk.currentVocation=live.vocation;
+          afk.detectedSource='entrada confirmada pelo perfil nativo';
+          afk.detectedAt=now;
+          afkPersist();
+        }
+      }
+    }
     const pending=afk.pendingLogin;
     if (!pending) return;
     if (!pending.name || !Number.isFinite(pending.at) || now-pending.at>45000) {
@@ -5149,6 +5210,11 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   // Recuperacao separada: a funcao original de troca fica intacta.
   const afkDriveRecovery = () => {
     if (!afk.enabled || afk.phase!=='recovery') return;
+    // Nao recuperar sem ter encontrado a lista verdadeira.
+    if (afk.stage==='menu' && afkFindCards().length<2) {
+      afkStop('Lista nao confirmada. Nenhuma engrenagem acionada.');
+      return;
+    }
 
     const now=Date.now();
     const target=afk.target;
@@ -5334,14 +5400,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       afk.selectionScreenSeen=true;
       afkSay(`Recuperacao: abrindo lista para selecionar ${target}.`);
     } else {
-      const gear=afkFindGear();
-
-      if (!gear || !afkNativeClick(gear)) {
-        afkStop('Engrenagem nativa indisponivel; sem trocar personagem.');
-        return;
-      }
-
-      afkSay('Recuperacao: abrindo menu nativo do jogo.');
+      // A recuperacao de identidade nao abre menu sem confirmacao.
+      afkStop('Lista indisponivel. Sem clicar na engrenagem.');
+      return;
     }
 
     afk.lastAction=now;
@@ -5461,6 +5522,29 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     afkScanRoster();
     if (!afk.enabled) return;
     if (window.__emerickPartyGate?.enabled) {afkStop('Party ativada; AFK interrompido.');return;}
+
+    if (afk.phase==='identify') {
+      if (Date.now()-afk.since>20000) {
+        afkStop(
+          'Perfil nao identificado em 20s. Nenhuma troca executada.'
+        );
+        return;
+      }
+
+      if (!afkSelectionRoot() && !afkFindEnterWorld() &&
+          (afkLiveIdentity() ||
+           (afk.current && !afk.pendingLogin &&
+            String(afk.detectedSource||'').startsWith('entrada') &&
+            (botFindPlayButton() || botFindGameModePanel() ||
+             botInHunt() || botTreinando())))) {
+
+        afk.enabled=false;
+        afk.phase='idle';
+        afk.stage='';
+        afkStart();
+      }
+      return;
+    }
 
     if (afk.phase==='recovery') {
       if (!afkBusy) {
@@ -5796,7 +5880,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     }
     const status=root.querySelector('[data-afk-status]');
     if (status) {
-      const phase=afk.enabled ? (afk.phase==='switch'?'TROCANDO PERSONAGEM':'HUNT ATIVA') : 'DESLIGADO';
+      const phase=afk.enabled ? (afk.phase==='switch'?'TROCANDO PERSONAGEM':afk.phase==='identify'?'IDENTIFICANDO':afk.phase==='recovery'?'RECUPERANDO':'HUNT ATIVA') : 'DESLIGADO';
       status.textContent=`${phase} · ${afk.message}`;
       status.dataset.running=String(afk.enabled);
     }
@@ -5934,7 +6018,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.55",
+    version: "6.2.56",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
