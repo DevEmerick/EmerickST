@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.56
+// // @version      6.2.57
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -4528,34 +4528,36 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   // O container do avatar pode ter dimensoes 0 (arte absoluta), portanto
   // nao descartamos a identidade apenas por offsetWidth/offsetHeight.
   const afkLiveIdentity = () => {
-    // Identidade nativa: independente de zoom e carregamento do level.
-    // Nunca identificar personagem pela posicao na fila.
+    // Perfil real: data-guide, sem classes CSS dependentes de sistema/zoom.
+    // Level fica no avatar; vocacao e nome ficam no bloco seguinte.
     const found=[];
     for (const avatar of document.querySelectorAll('[data-guide="character-profile-avatar"]')) {
       if (!avatar.isConnected || avatar.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
-      const bases=[avatar.parentElement,avatar.parentElement?.parentElement].filter(Boolean);
-      for (const base of bases) {
-        if (base.closest('[hidden],[aria-hidden="true"]')) continue;
-        const info=base.nextElementSibling;
-        if (!info || info.closest('[hidden],[aria-hidden="true"]')) continue;
-        const headings=[...info.querySelectorAll('h5')];
+      const options=[avatar.nextElementSibling,avatar.parentElement?.nextElementSibling];
+      let identity=null;
+      for (const info of options) {
+        if (!info?.isConnected || info.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
+        const headings=[...info.children].filter(e=>e.tagName==='H5');
         if (headings.length!==2) continue;
         const vocation=String(headings[0].textContent||'').trim().toLowerCase();
         const name=String(headings[1].textContent||'').trim();
         if (!/^(monk|knight|paladin|sorcerer|druid)$/.test(vocation) ||
             name.length<2 || name.length>64) continue;
-        const levels=[...base.querySelectorAll('p')]
-          .map(p=>String(p.textContent||'').trim())
-          .filter(t=>/^\d{1,4}$/.test(t))
-          .map(Number).filter(n=>n>=1&&n<=9999);
-        const level=levels.length===1?levels[0]:null;
-        found.push({name,vocation,level});
+        identity={name,vocation};
         break;
       }
+      if (!identity) continue;
+      // Nao usar stamina, relogio nem outros numeros da pagina como level.
+      const texts=[...avatar.querySelectorAll('p')]
+        .map(p=>String(p.textContent||'').trim())
+        .filter(s=>/^\d{1,4}$/.test(s));
+      const levels=[...new Set(texts.map(Number).filter(n=>n>=1&&n<=9999))];
+      if (levels.length>1) return null;
+      found.push({...identity,level:levels.length===1?levels[0]:null});
     }
     if (!found.length) return null;
-    const keys=new Set(found.map(x=>afkNorm(x.name)+'|'+x.vocation));
-    if (keys.size!==1) return null;
+    // React pode duplicar o mesmo perfil; perfis conflitantes sao rejeitados.
+    if (new Set(found.map(x=>afkNorm(x.name)+'|'+x.vocation)).size!==1) return null;
     const levels=[...new Set(found.map(x=>x.level).filter(Number.isInteger))];
     if (levels.length>1) return null;
     return {...found[0],level:levels.length===1?levels[0]:null};
@@ -4942,7 +4944,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         : `Level ${level} fora das Hunts configuradas para ${afk.current}; confira o level mínimo inicial.`;
       afkSay(reason, 'warn'); return;
     }
-    if (afkSelectionRoot() || afkFindEnterWorld()) {
+    if ((afkSelectionRoot() || afkFindEnterWorld()) && !afkLiveIdentity()) {
       afkSay(`Entre no mundo com ${afk.current} antes de iniciar o AFK.`, 'warn'); return;
     }
     if (botFindConnectionLostPanel()) {
@@ -5546,6 +5548,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       return;
     }
 
+    if (afk.phase==='recovery' && !afkSelectionRoot()) {
+      afkStop('Identidade incerta: nao abrir engrenagem sem lista confirmada.');
+      return;
+    }
     if (afk.phase==='recovery') {
       if (!afkBusy) {
         try {
@@ -6018,7 +6024,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.56",
+    version: "6.2.57",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
