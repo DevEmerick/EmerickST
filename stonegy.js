@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.43
+// // @version      6.2.52
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -1683,7 +1683,7 @@
   };
   const botClearInventoryMarkers = () => { document.querySelectorAll(".stonegy-inv-protected").forEach((el) => el.classList.remove("stonegy-inv-protected")); };
   const botApplyInventoryMarkers = () => {
-    if (!BOT_CONFIG.botAtivo || !BOT_CONFIG.showInventoryMarkers) { botClearInventoryMarkers(); return; }
+    if (!BOT_CONFIG.showInventoryMarkers) { botClearInventoryMarkers(); return; }
     if (botSellPanelOpen()) return;
     const list = (BOT_CONFIG.protectedItems || []).map(botNormalize).filter(Boolean);
     const items = botFindInventoryItems();
@@ -3119,9 +3119,32 @@ details.console summary::before{color:#a79dff}
 .afk-editor-header small{font-size:9px;letter-spacing:.1em;color:#97a5c0}
 .afk-editor-header strong{display:block;margin-top:3px;font-size:13px;color:#e9e3ff}
 .afk-editor-vocation{font-size:9px;color:#afbef1;border:1px solid #4c4973;padding:5px 7px;border-radius:6px;white-space:nowrap}
+.afk-game-vocation{float:right;font-size:9px;color:#c5c0fa;border:1px solid #514a77;border-radius:5px;padding:2px 5px;font-weight:600}
+.afk-auto-label{font-size:9px;color:#86cbb0;border:1px solid #37634e;border-radius:5px;padding:3px 6px;font-weight:700}
 .afk-editor .afk-fields{margin:0}
 .afk-editor .afk-fields.hunt-row{grid-template-columns:minmax(0,1fr) 90px}
 .afk-editor .afk-fields.other-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+.afk-level-header{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#a9b4cb;font-size:10px;font-weight:700;letter-spacing:.1em}
+.afk-level-toggle{display:flex;align-items:center;gap:5px;letter-spacing:0;font-size:10px;cursor:pointer}
+.afk-level-toggle input{accent-color:#a895f1}
+.afk-level-row{display:grid;grid-template-columns:78px minmax(0,1fr) 75px;align-items:center;gap:7px}
+.afk-level-row[hidden]{display:none!important}
+.afk-level-row>input,.afk-level-row>select,.afk-range{width:100%;min-width:0;box-sizing:border-box;border:1px solid #3b465f;border-radius:8px;background:#121726;color:#e7e9f4;min-height:39px;font:11px system-ui;padding:0 8px}
+.afk-range{display:flex;align-items:center;justify-content:center;text-align:center;font-size:10px;color:#bbaafb;white-space:nowrap}
+.afk-range input{min-width:0;width:43px;color:#e7e9f4;background:transparent;border:0;outline:0;font:11px system-ui;text-align:center}
+.afk-editor .afk-fields.other-row{grid-template-columns:minmax(0,1fr) 1fr}
+/* Hunts dinamicas por level: so visual da aba AFK */
+.afk-level-list{display:flex;flex-direction:column;gap:6px;min-width:0}
+.afk-level-row{display:grid;grid-template-columns:70px minmax(0,1fr) 68px 26px;gap:6px;align-items:center;min-width:0}
+.afk-level-row .afk-level-min,.afk-level-row .afk-level-hunt,.afk-level-row .afk-level-lure{min-width:0;width:100%;height:35px;box-sizing:border-box;border:1px solid #3b465f;background:#121726;border-radius:7px;color:#e7e9f4;font:11px system-ui;padding:0 7px}
+.afk-level-row .afk-level-min{color:#c6b5ff;text-align:center;appearance:textfield;-moz-appearance:textfield}
+.afk-level-row .afk-level-min::-webkit-inner-spin-button,.afk-level-row .afk-level-min::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.afk-level-row .afk-level-remove{height:31px;padding:0;background:transparent;border:1px solid #3b465f;color:#b6a9c9;border-radius:6px;cursor:pointer}
+.afk-level-row .afk-level-remove:hover{border-color:#ad748d;color:#f0bdce}
+.afk-level-range{font-size:9px;color:#8e9bbb;margin:-2px 0 2px 3px}
+.afk-add-hunt{width:100%;min-height:30px;background:#262c3f;color:#c6b8ef;border:1px dashed #5d567e;border-radius:7px;font:600 10px system-ui;cursor:pointer}
+.afk-add-hunt:disabled{opacity:.45;cursor:default}
+.afk-editor [data-afk-count]{font-size:9px;color:#8d9bb7;letter-spacing:0}
 .afk-editor-placeholder{font-size:10px;color:#9babca;line-height:1.5;margin:0}
 .afk-inline-order{font-size:10px;color:#cbbff2;line-height:1.5;word-break:break-word}
 .settings-card strong{display:block;font-size:12px;margin-bottom:8px;color:#ded8fa}
@@ -3150,6 +3173,54 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 .afk-add-details .afk-add input{min-width:0;width:100%}
 .afk-editor{gap:8px;padding:9px}
 .afk-game-tip{font-size:9px;line-height:1.35}
+
+/* AFK v6.2.48: somente camada visual — nenhum handler ou estado modificado. */
+.afk-view{padding:9px 10px 13px;gap:9px;scroll-padding-top:68px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;background:linear-gradient(180deg,rgba(32,33,53,.22),transparent 45%)}
+.afk-heading{position:sticky;top:-9px;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:52px;padding:8px 0;background:linear-gradient(180deg,#131625 88%,rgba(19,22,37,.96));border-bottom:1px solid #303448}
+.afk-heading-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.afk-heading-main strong{font-size:15px;line-height:1.15;letter-spacing:.015em;color:#f1edff}
+.afk-heading-main span{font-size:9px;line-height:1.2;color:#8994ac;white-space:nowrap}
+.afk-heading .afk-toggle{flex:none;min-height:32px;padding:0 12px;border:1px solid #7665b5;border-radius:8px;background:#40345f;color:#f7f0ff;font-size:11px;font-weight:650;white-space:nowrap}
+.afk-heading .afk-toggle[data-on="true"]{background:#35232f;border-color:#926678;color:#f4cad5}
+.afk-heading .afk-toggle:focus-visible,.afk-queue button:focus-visible,.afk-field input:focus-visible,.afk-field select:focus-visible{outline:2px solid #b5a6ff;outline-offset:2px}
+.afk-status{flex-shrink:0;height:auto;min-height:38px;padding:9px 10px 9px 24px;position:relative;background:#1a2030;border:1px solid #343e55;border-radius:8px;color:#bac5d9;font-size:10px;line-height:1.5;max-height:none;overflow:visible;overflow-wrap:anywhere;scrollbar-width:thin}
+.afk-status:before{content:'';position:absolute;left:10px;top:12px;width:6px;height:6px;border-radius:50%;background:#76849b}
+.afk-status[data-running="true"]{border-color:#545277;color:#ded8fa;background:#201f32}
+.afk-status[data-running="true"]:before{background:#9f8cf2;box-shadow:0 0 0 3px #9f8cf222}
+.afk-identity{border:1px solid #30394e;border-radius:9px;background:#171c2b;padding:8px 11px;min-width:0}
+.afk-identity .afk-field{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;gap:2px 8px;min-width:0}
+.afk-identity .afk-game-label{grid-column:1;grid-row:1;letter-spacing:.08em;font-size:9px;color:#8e9cb6!important}
+.afk-identity [data-afk-current]{grid-column:1;grid-row:2;min-height:22px;height:22px;padding:0;border:0;background:transparent;font-size:13px;font-weight:650;color:#e9e7f8;text-overflow:ellipsis}
+.afk-identity [data-afk-current]:focus{border:0;outline:none}
+.afk-identity .afk-game-vocation{grid-column:2;grid-row:1 / 3;float:none;font-size:9px;letter-spacing:.02em;color:#beb6ee;border:1px solid #514c72;border-radius:6px;background:#292740;padding:5px 7px}
+.afk-identity .afk-game-tip{font-size:9px;line-height:1.2;margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#7886a0}
+.afk-roster-actions{margin:2px 0 -4px;min-height:24px}
+.afk-roster-actions strong{font-size:10px;letter-spacing:.07em;color:#c3cbe0}
+.afk-auto-label{font-size:9px;border-color:#315d4e;background:#182c29;color:#8cd8b9;padding:3px 6px}
+.afk-queue{gap:4px;overflow:visible;max-height:none}
+.afk-queue-row{height:34px;min-height:34px;padding:2px 6px;gap:6px;border-color:#303a50;background:#1b2030;border-radius:8px}
+.afk-queue-row[data-selected="true"]{background:#27243b;border-color:#7d6bbd;box-shadow:inset 2px 0 0 #a48fed}
+.afk-queue-row input{width:14px;height:14px;accent-color:#ad9ce8}
+.afk-queue-row .afk-queue-pick{gap:6px;align-items:center;min-width:0}
+.afk-queue-pick strong{font-size:11px;color:#e7e8f6;max-width:46%}
+.afk-queue-pick small{font-size:9px;color:#8795ac;white-space:nowrap;min-width:0}
+.afk-queue-row .afk-queue-arrows{gap:3px}
+.afk-queue-row .afk-queue-arrows button{width:22px;min-width:22px;height:23px;background:transparent;color:#afbbd6;border-color:#3a4059;border-radius:5px;opacity:.68}
+.afk-queue-row .afk-queue-arrows button:hover:not(:disabled){opacity:1;background:#33334b;border-color:#696086}
+.afk-queue-row .afk-queue-arrows button:disabled{opacity:.18}
+.afk-editor{gap:9px;padding:11px;border-radius:10px;border-color:#394057;background:#1a1f30}
+.afk-editor-header{padding-bottom:9px;border-bottom:1px solid #30374b;min-height:35px}
+.afk-editor-header small{font-size:9px;letter-spacing:.07em;color:#8290aa}
+.afk-editor-header strong{font-size:13px;margin-top:3px;font-weight:700;color:#e8e5f9}
+.afk-editor-vocation{font-size:9px;padding:4px 6px;border-color:#514d77;background:#26253c;color:#c5b9f6}
+.afk-editor .afk-fields{gap:9px}
+.afk-editor .afk-fields.hunt-row{grid-template-columns:minmax(0,1fr) 84px}
+.afk-editor .afk-field{gap:5px}
+.afk-editor .afk-field>span{font-size:9px;letter-spacing:.065em;color:#a4b0c8}
+.afk-editor .afk-field input,.afk-editor .afk-field select{min-height:35px;height:35px;padding:0 9px;font-size:11px;border-radius:7px;border-color:#3a465f;background:#111726;color:#e0e3f1}
+.afk-editor .afk-field select{padding-right:3px}
+.afk-editor-placeholder{color:#7e8da6;font-size:9px;line-height:1.35;margin:0}
+.afk-inline-order,.afk-roster{display:none}
 </style>
 <div class="toast-container" data-toast-container></div>
 <section class="panel">
@@ -3207,38 +3278,34 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       <div data-bestiary-rows><div class="bestiary-empty">Clique em Atualizar durante uma hunt.</div></div>
     </section>
     <section class="afk-view" data-afk-view hidden>
-      <div class="afk-heading"><strong>AFK</strong><span>Rotação Solo</span></div>
-      <div class="afk-status" data-afk-status>Configure os personagens que vão caçar.</div>
-      <label class="afk-field afk-full"><span class="afk-game-label">PERSONAGEM ABERTO NO JOGO</span>
-        <input type="text" data-afk-current list="emerick-afk-names" placeholder="Confirme quem está logado" autocomplete="off" spellcheck="false" />
-      </label>
-      <p class="afk-game-tip">Confirme quem está no jogo antes de iniciar. Editar outro perfil não troca de personagem.</p>
-      <div class="afk-roster-actions"><strong>PERSONAGENS · ORDEM</strong><button type="button" data-afk-scan class="afk-scan" title="Ler personagens na tela de seleção">↻ Ler lista</button></div>
-      <div class="afk-queue" data-afk-queue></div>
-      <details class="afk-add-details"><summary>+ Adicionar personagem</summary>
-        <div class="afk-add"><input type="text" data-afk-add placeholder="Nome do personagem" maxlength="60" autocomplete="off" spellcheck="false" /><button type="button" data-afk-add-btn>Adicionar</button></div>
-      </details>
-      <div class="afk-editor" data-afk-editor-panel>
-        <div class="afk-editor-header"><div><small>CONFIGURANDO</small><strong data-afk-editing>Selecione um personagem</strong></div><span class="afk-editor-vocation" data-afk-vocation>PERFIL</span></div>
-        <div class="afk-fields hunt-row">
-          <label class="afk-field"><span>HUNT ALVO</span>
-            <input type="text" data-afk-hunt placeholder="Hunt ou criatura" autocomplete="off" spellcheck="false" />
-          </label>
-          <label class="afk-field"><span>LURE</span>
-            <select data-afk-lure><option value="max">MAX</option><option value="off">OFF</option></select>
-          </label>
-        </div>
-        <div class="afk-fields other-row"><label class="afk-field"><span>STAMINA MÍN</span>
-          <select data-afk-stamina>${staminaOptions}</select></label>
-          <label class="afk-field"><span>SKILL TREINO</span>
-          <select data-afk-skill><option value="auto">AUTO · VOCAÇÃO</option><option value="Sword">Sword</option><option value="Axe">Axe</option><option value="Club">Club</option><option value="Fist">Fist</option><option value="Distance">Distance</option><option value="Magic">Magic</option></select></label>
-        </div>
-        <p class="afk-editor-placeholder" data-afk-editor-hint>Configurações salvas automaticamente para cada personagem.</p>
+      <div class="afk-heading">
+        <div class="afk-heading-main"><strong>AFK</strong><span>Rotação automática</span></div>
+        <button type="button" data-afk-toggle class="afk-toggle">▶ Iniciar AFK</button>
       </div>
-      <datalist id="emerick-afk-names" data-afk-names></datalist>
+      <div class="afk-status" data-afk-status>Configure os personagens que vão caçar.</div>
+      <div class="afk-identity">
+        <label class="afk-field afk-full"><span class="afk-game-label">PERSONAGEM NO JOGO</span>
+          <input type="text" data-afk-current placeholder="Aguardando detecção" readonly autocomplete="off" spellcheck="false" title="Detectado automaticamente pela entrada confirmada no Stonegy" />
+          <b class="afk-game-vocation" data-afk-current-vocation>AGUARDANDO</b>
+        </label>
+        <p class="afk-game-tip" data-afk-identity-hint>A lista é lida automaticamente no Stonegy.</p>
+      </div>
+      <div class="afk-roster-actions"><strong>PERSONAGENS</strong><span class="afk-auto-label">AUTO</span></div>
+      <div class="afk-queue" data-afk-queue></div>
+      <div class="afk-editor" data-afk-editor-panel>
+        <div class="afk-editor-header"><div><small>CONFIGURAÇÕES DE</small><strong data-afk-editing>Selecione um personagem</strong></div><span class="afk-editor-vocation" data-afk-vocation>PERFIL</span></div>
+        <div class="afk-level-header"><span>HUNTS POR LEVEL</span><small data-afk-count>1 hunt</small></div>
+        <div data-afk-level-list class="afk-level-list"></div>
+        <button type="button" data-afk-add-hunt class="afk-add-hunt">＋ Adicionar Hunt</button>
+        <div class="afk-fields other-row"><label class="afk-field"><span>STAMINA MÍNIMA</span>
+          <select data-afk-stamina>${staminaOptions}</select></label></div>
+        <details data-afk-knight-skill hidden><summary style="font-size:10px;color:#a8b3c9;cursor:pointer">Treino Knight · avançado</summary>
+          <select data-afk-skill style="width:100%;margin-top:6px;background:#121726;color:#e7e9f4;border:1px solid #3b465f;border-radius:8px;padding:8px"><option value="auto">AUTO</option><option value="Sword">Sword</option><option value="Axe">Axe</option><option value="Club">Club</option></select>
+        </details>
+        <p class="afk-editor-placeholder" data-afk-editor-hint>Configurações salvas automaticamente por personagem.</p>
+      </div>
       <p class="afk-inline-order" data-afk-order>Selecione quem vai participar.</p>
-      <button type="button" data-afk-toggle class="afk-toggle">▶ Iniciar AFK</button>
-      <p class="afk-roster" data-afk-roster>Abra Trocar Personagem uma vez para detectar a lista, ou adicione nomes manualmente.</p>
+      <p class="afk-roster" data-afk-roster>Aguardando a lista oficial do Stonegy.</p>
     </section>
     <div class="bot-view" data-bot-view hidden>
       <div class="status-bar">
@@ -4240,6 +4307,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         }
       }
       else if (flow.etapa === "AGUARDANDO_CHECAR_STAMINA") {
+        // Transicao por level: esta etapa so vem APOS o fluxo de venda.
+        if (afk.enabled && afk.levelTransition?.state==='selling') {
+          afk.levelTransition=null; afkPersist();
+        }
         // Em Party nao existe treinamento; preserva o fluxo original no Solo.
         if (botIsPartyLeader()) {
           botLog("flow", "♛ Party · sem treinamento · iniciar hunt");
@@ -4331,6 +4402,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
               emHuntPriority.stage='position';
             }
             if (ok) {
+              if (afk.enabled && afk.phase==='hunt') {
+                afk.runningTier=afkHuntFor(afk.current)?.index??null;
+                afkPersist();
+              }
               botLogAndToast("flow", "✅ Ciclo completo");
               botClearFlow("ciclo completo");
             } else {
@@ -4393,6 +4468,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     afkReadJson(sessionStorage, AFK_SESSION_KEY, {}));
   if (!Array.isArray(afk.visited)) afk.visited=[];
   if (typeof afk.editing !== 'string') afk.editing='';
+  if (!afk.enabled && afk.detectedSource==='informado manualmente') {
+    afk.current='';afk.currentVocation='';afk.detectedSource='aguardando entrada';
+  }
   let afkBusy=false;
   const afkPersist = () => {
     try { localStorage.setItem(AFK_PROFILES_KEY, JSON.stringify(afkProfiles)); } catch (_) {}
@@ -4409,31 +4487,179 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       name: String(name).trim(), hunt:'', lure:'max', stamina:1, next:''};
     return afkProfiles.profiles[key];
   };
-  // Lista ordenada de nomes, com inclusao explicita (desmarcado por padrao).
-  // Os perfis antigos v6.2.30 sao mantidos; 'next' deixa de ser utilizado.
+  // Migracao lazy: preserva os campos legados e a configuracao da segunda Hunt.
+  const afkHunts = p => {
+    if (!p) return [];
+    if (!Array.isArray(p.hunts) || !p.hunts.length) {
+      p.hunts=[{minLevel:1,hunt:String(p.hunt||''),lure:p.lure==='off'?'off':'max'}];
+      if (p.secondEnabled && Number.isSafeInteger(Number(p.threshold)) && Number(p.threshold)>=2)
+        p.hunts.push({minLevel:Number(p.threshold),hunt:String(p.hunt2||''),lure:p.lure2==='off'?'off':'max'});
+    }
+    return p.hunts;
+  };
+  const afkValidHunts = p => {
+    const rows=afkHunts(p);
+    return rows.length>=1 && rows.length<=8 && rows.every((r,i)=>
+      Number.isSafeInteger(Number(r.minLevel)) && Number(r.minLevel)>=1 &&
+      Number(r.minLevel)<=9999 && (i===0 || Number(r.minLevel)>Number(rows[i-1].minLevel)));
+  };
+  // Perfil nativo: avatar e level sao IRMAOS; o bloco seguinte tem vocacao e nome.
+  // O container do avatar pode ter dimensoes 0 (arte absoluta), portanto
+  // nao descartamos a identidade apenas por offsetWidth/offsetHeight.
+  const afkLiveIdentity = () => {
+    const found=[];
+    for (const avatar of document.querySelectorAll('[data-guide="character-profile-avatar"]')) {
+      if (avatar.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
+      const box=avatar.parentElement;
+      const levelBox=[...(box?.children||[])].find(el=>el!==avatar && /^\d{1,4}$/.test((el.textContent||'').trim()) && el.querySelector('p'));
+      const info=box?.nextElementSibling;
+      const headings=[...(info?.querySelectorAll('h5')||[])];
+      if (headings.length!==2) continue;
+      const vocation=(headings[0].textContent||'').trim().toLowerCase();
+      const name=(headings[1].textContent||'').trim();
+      const level=Number((levelBox?.textContent||'').trim());
+      if (!/^(monk|knight|paladin|sorcerer|druid)$/.test(vocation) ||
+          !name || name.length>64 || !Number.isSafeInteger(level) || level<1 || level>9999) continue;
+      found.push({name,level,vocation});
+    }
+    // Se houver mais de um painel, usar apenas o que corresponde a identidade
+    // ja confirmada pelo motor (nunca selecionar o primeiro arbitrariamente).
+    if (found.length===1) return found[0];
+    const matching=found.filter(x=>afk.current && afkNorm(x.name)===afkNorm(afk.current));
+    return matching.length===1?matching[0]:null;
+  };
+  const afkLevel = name => {
+    const live=afkLiveIdentity();
+    if (live) return afkNorm(live.name)===afkNorm(name)?live.level:null;
+    const saved=afkProfiles.roster.find(r=>afkNorm(r.name)===afkNorm(name))?.level;
+    const cached=Number.isSafeInteger(saved) && saved>=1 && saved<=9999 ? saved : null;
+    // A lista SEUS PERSONAGENS e confiavel APOS uma entrada confirmada.
+    // Usar este valor como fallback somente para o mesmo personagem da sessao.
+    // A troca automatica de Hunt por level continua exigindo leitura NATIVA ao vivo.
+    if (botInHunt() && afkNorm(name)===afkNorm(afk.current)) {
+      const confirmed=String(afk.detectedSource||'').startsWith('entrada');
+      return confirmed && !afk.pendingLogin && afk.phase!=='switch' ? cached : null;
+    }
+    return cached;
+  };
+  const afkHuntFor = name => {
+    const p=afkProfile(name), rows=afkHunts(p);
+    if (!afkValidHunts(p)) return null;
+    // Uma so Hunt nao depende de level: compatibilidade com modo legado.
+    const level=rows.length===1 ? (afkLevel(name)??Number(rows[0].minLevel)) : afkLevel(name);
+    if (level===null) return null;
+    const index=rows.findLastIndex(row=>level>=Number(row.minLevel));
+    if (index<0) return null;
+    return {hunt:String(rows[index].hunt||'').trim(),lure:rows[index].lure==='off'?'off':'max',
+      minLevel:Number(rows[index].minLevel),index,level};
+  };
+  // Requer duas leituras seguidas para reconhecer uma promocao de Hunt.
+  let afkLevelProbe='';
+  const afkTransitionTick = () => {
+    if (!afk.enabled || afk.phase!=='hunt' || window.__emerickPartyGate?.enabled) return false;
+    const now=Date.now(), transition=afk.levelTransition;
+    if (transition) {
+      if (transition.character!==afkNorm(afk.current)) {
+        afkStop('Transicao de Hunt perdeu a identidade do personagem.');return true;
+      }
+      if (transition.state==='finishing') {
+        if (botInHunt()) {
+          if (now-transition.startedAt>20000) afkStop('Finalizar Hunt nao foi confirmado em 20 segundos.');
+          return true;
+        }
+        if (!botFindPlayButton() && !botFindGameModePanel()) {
+          if (now-transition.startedAt>20000) afkStop('Fim da Hunt sem retorno ao jogo.');
+          return true;
+        }
+        transition.state='selling'; transition.startedAt=now;afkPersist();
+        afkSay('Hunt finalizada; iniciando a venda antes da proxima Hunt.');
+        botStartReturn(); // O MESMO motor de venda/protecao do Solo.
+        return true;
+      }
+      // Esperar o motor EXISTENTE fechar/ignorar venda e checar stamina.
+      if (transition.state==='selling') {
+        if (!botGetFlow() && !botInHunt() && now-transition.startedAt>30000) {
+          afkStop('Transicao de level: venda nao iniciou ou nao concluiu.');return true;
+        }
+        return false;
+      }
+    }
+    if (!botInHunt() || botGetFlow() || botHuntAsyncRunning || botTrainingAsyncRunning) {
+      afkLevelProbe='';return false;
+    }
+    const live=afkLiveIdentity();
+    if (!live || afkNorm(live.name)!==afkNorm(afk.current)) {afkLevelProbe='';return false;}
+    const profile=afkProfile(afk.current), rows=afkHunts(profile);
+    if (!afkValidHunts(profile) || rows.length<2) return false;
+    const chosen=afkHuntFor(afk.current);
+    if (!chosen?.hunt) return false;
+    const running=botReadHuntStatus()?.huntName;
+    if (!running) return false;
+    const matches=rows.map((r,i)=>afkNorm(r.hunt)===afkNorm(running)?i:-1).filter(i=>i>=0);
+    const tracked=Number.isInteger(afk.runningTier)?afk.runningTier:-1;
+    const currentIndex=(tracked>=0 && matches.includes(tracked)) ? tracked : (matches.length===1?matches[0]:-1);
+    // So interrompe a Hunt reconhecida de uma faixa INFERIOR.
+    if (currentIndex<0 || chosen.index<=currentIndex) {afkLevelProbe='';return false;}
+    const signal=[afkNorm(afk.current),live.level,currentIndex,chosen.index,running].join('|');
+    if (afkLevelProbe!==signal) {afkLevelProbe=signal;return false;}
+    const targets=[...document.querySelectorAll('[data-guide="hunt-finish-button"]')]
+      .filter(el=>botVisible(el) && !el.closest('#stonegy-tm-overlay') &&
+        [...el.querySelectorAll('h5')].some(h=>afkNorm(h.textContent)==='FINALIZAR HUNT'));
+    if (targets.length!==1) return false;
+    const finish=targets[0].querySelector('.highlight-animation')||targets[0];
+    if (!botVisible(finish)) return false;
+    afk.levelTransition={character:afkNorm(afk.current),from:running,to:chosen.hunt,
+      state:'finishing',startedAt:now};
+    afkPersist(); // trava antes do clique: evita duplos comandos
+    if (!afkNativeClick(finish)) {afk.levelTransition=null;afkPersist();return false;}
+    afkSay(`Level ${live.level}: finalizando ${running} para vender e iniciar ${chosen.hunt}.`);
+    return true;
+  };
+  // A fonte de verdade dos personagens e o HTML SEUS PERSONAGENS.
+  // Uma fila antiga pode conter nomes digitados incorretamente: so nomes
+  // confirmados pela lista do jogo sao exibidos e podem ser executados.
+  // Mantemos ordem/checkbox/Hunt/Skill dos nomes autenticos.
   const afkQueueSync = () => {
-    const seen=new Set();
-    const queue=[];
-    for (const item of afkProfiles.queue) {
-      const name=String(item?.name||'').trim();
-      const id=afkNorm(name);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);queue.push({name,enabled:item.enabled===true});
+    // Nunca reconciliar a fila automaticamente durante uma Hunt ou troca.
+    // A lista do Stonegy pode montar em partes ao trocar de pagina;
+    // a conciliacao neste momento removia o proximo personagem da fila.
+    // Manter as mudancas explicitas do usuario na fila (marcar/reordenar).
+    if (afk.enabled) return afkProfiles.queue;
+    const official=[];const valid=new Set();
+    for (const row of afkProfiles.roster) {
+      const name=String(row?.name||'').trim();const key=afkNorm(name);
+      if (!name || !key || valid.has(key)) continue;
+      const voc=String(row.vocation||'').toLowerCase();
+      if (!/^(monk|paladin|knight|sorcerer|druid)$/.test(voc)) continue;
+      official.push({name,vocation:voc});valid.add(key);
     }
-    for (const item of [...afkProfiles.roster, ...Object.values(afkProfiles.profiles)]) {
-      const name=String(item?.name||'').trim();
-      const id=afkNorm(name);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);queue.push({name,enabled:false});
+    // Ate a PRIMEIRA leitura oficial, guardar a fila antiga somente no
+    // armazenamento: nao exibir nem executar nomes que podem ser manuais.
+    // Assim, ao ler a lista, conservamos a ordem/checkbox dos nomes validos.
+    // So reconciliar quando uma lista oficial de pelo menos dois
+    // personagens foi confirmada; caso contrario conservar tudo.
+    if (valid.size < 2) return afkProfiles.queue;
+    const old=afkProfiles.queue;
+    const seen=new Set();const queue=[];
+    for (const row of old) {
+      const key=afkNorm(row?.name);
+      if (!valid.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      queue.push({name:official.find(c=>afkNorm(c.name)===key).name,enabled:row.enabled===true});
     }
-    // Adiciona o personagem atual somente depois que seu perfil for salvo.
-    if (afk.current && afkProfiles.profiles[afkNorm(afk.current)]) {
-      const id=afkNorm(afk.current);
-      if (!seen.has(id)) queue.push({name:afk.current,enabled:false});
+    for (const row of official) {
+      const key=afkNorm(row.name);
+      if (seen.has(key)) continue;
+      seen.add(key);queue.push({name:row.name,enabled:false});
     }
-    if (JSON.stringify(queue)!==JSON.stringify(afkProfiles.queue)) {
-      afkProfiles.queue=queue;
-      afkPersist();
+    // Perfis digitados errados sao apagados SOMENTE depois de uma leitura
+    // oficial completa. Nao apagar informacoes durante montagem da tela.
+    if (valid.size) {
+      for (const key of Object.keys(afkProfiles.profiles))
+        if (!valid.has(key)) delete afkProfiles.profiles[key];
+    }
+    if (JSON.stringify(queue)!==JSON.stringify(old)) {
+      afkProfiles.queue=queue;afkPersist();
     }
     return afkProfiles.queue;
   };
@@ -4447,47 +4673,70 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     if (currentIndex<0 || index<=currentIndex) return false;
     return !afk.visited.some(name=>afkNorm(name)===afkNorm(list[index].name));
   };
-  const afkNames = () => [...new Set([
-    ...afkProfiles.roster.map(x=>x.name),
-    ...Object.values(afkProfiles.profiles).map(x=>x.name),
-    ...afkProfiles.queue.map(x=>x.name),
-    afk.current, afk.target
-  ].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const afkNames = () => afkProfiles.roster.map(x=>x.name);
+  const afkVocation = name => afkProfiles.roster.find(c=>afkNorm(c.name)===afkNorm(name))?.vocation || '';
   // Na pagina SEUS PERSONAGENS, os cartoes sao a referencia principal.
   // O cabecalho e a classe externa variam durante a navegacao React.
   // Nao e seguro usar o primeiro cartao nem a posicao como identidade.
+  // Localiza os cartoes REAIS da tela de selecao pelo texto semantico.
+  // Os hashes css-* do MUI mudam; nao devem impedir o AFK de chegar a Zhang.
+  // A estrutura estavel: cartao clicavel com h5 Nome e h5 Level N VOCACAO.
   const afkFindCards = () => {
-    const groups=[...document.querySelectorAll('.css-1n31i2o')].filter(el =>
-      el.isConnected && !el.closest('#stonegy-tm-overlay'));
-    for (const group of groups) {
-      const nodes=[...group.querySelectorAll('.css-16d0rbh')];
-      const cards=nodes.flatMap(node=>{
-        if (!node.isConnected || node.closest('#stonegy-tm-overlay') ||
-            !node.getClientRects().length || !botVisible(node)) return [];
-        const h=[...node.querySelectorAll('h5')];
-        const name=String(h[0]?.textContent||'').trim();
-        const info=String(h[1]?.textContent||'').trim();
-        const voc=/Level\s+\d+\s+(KNIGHT|SORCERER|DRUID|PALADIN|MONK)\b/i.exec(info);
-        return name && voc ? [{name,vocation:voc[1].toLowerCase(),node}] : [];
-      });
-      // Uma lista real, nao um menu ou item homonimo em outra pagina.
-      if (cards.length>=2) return cards;
+    const vocationRe=/^Level\s+\d+\s+(KNIGHT|SORCERER|DRUID|PALADIN|MONK)\s*$/i;
+    const visible = el => {
+      if (!el?.isConnected || el.closest('#stonegy-tm-overlay')) return false;
+      try {
+        const css=getComputedStyle(el);
+        if (css.display==='none' || css.visibility==='hidden' || css.visibility==='collapse') return false;
+        const rect=el.getBoundingClientRect();
+        return rect.width>8 && rect.height>8;
+      } catch (_) { return false; }
+    };
+    const cards=[];
+    const used=new Set();
+    // Os cards têm cursor:pointer inline, mesmo quando CSS class é trocada.
+    const nodes=document.querySelectorAll('.css-1n31i2o > .css-16d0rbh, div[style*="cursor: pointer"], div[style*="cursor:pointer"], [role="button"]');
+    for (const node of nodes) {
+      if (used.has(node) || !visible(node)) continue;
+      const headings=[...node.querySelectorAll('h5')];
+      if (headings.length!==2) continue;
+      const name=String(headings[0].textContent||'').trim();
+      const info=String(headings[1].textContent||'').trim();
+      const match=vocationRe.exec(info);
+      if (!name || !match || name.length>64 || vocationRe.test(name)) continue;
+      // O pai do cartao deve ser o agrupamento comum da lista.
+      // Evita reconhecer popups ou outros controles isolados.
+      cards.push({name,vocation:match[1].toLowerCase(),level:Number(/\d+/.exec(info)?.[0]),node});
+      used.add(node);
     }
-    return [];
+    const byParent=new Map();
+    for (const card of cards) {
+      const parent=card.node.parentElement;
+      if (!parent || !visible(parent)) continue;
+      if (!byParent.has(parent)) byParent.set(parent,[]);
+      byParent.get(parent).push(card);
+    }
+    const groups=[...byParent.values()].filter(g=>g.length>=2 &&
+      new Set(g.map(c=>afkNorm(c.name))).size===g.length);
+    if (groups.length!==1) return [];
+    return groups[0];
   };
   const afkSelectionRoot = () => {
     const cards=afkFindCards();
     if (cards.length<2) return null;
-    return cards[0].node.closest('.css-1nqo1lq') || cards[0].node.closest('.css-1n31i2o');
+    return cards[0].node.closest('.css-1nqo1lq') || cards[0].node.closest('.css-1n31i2o') || cards[0].node.parentElement;
   };
   const afkScanRoster = () => {
     const cards=afkFindCards();
     if (!cards.length) return cards;
     const previous=JSON.stringify(afkProfiles.roster);
-    afkProfiles.roster=cards.map(({name,vocation})=>({name,vocation}));
+    afkProfiles.roster=cards.map(({name,vocation,level})=>({name,vocation,level}));
     for (const {name} of cards) afkProfile(name);
-    afkQueueSync(); // nao redefine ordem nem marcacoes ja salvas.
-    if (!afk.editing && afkProfiles.queue.length) afk.editing=afkProfiles.queue[0].name;
+    afkQueueSync(); // sincroniza nomes validos sem perder ordem/configuracoes.
+    if (!afkProfiles.queue.some(x=>afkNorm(x.name)===afkNorm(afk.editing)))
+      afk.editing=afkProfiles.queue[0]?.name || '';
+    // O personagem selecionado na tela NAO e necessariamente o que esta logado.
+    if (afk.current && afkVocation(afk.current)) afk.currentVocation=afkVocation(afk.current);
     if (JSON.stringify(afkProfiles.roster)!==previous) {
       afkPersist();
       afkSay(`${cards.length} personagens reconhecidos na seleção.`);
@@ -4496,16 +4745,18 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   };
   const afkApplyProfile = () => {
     const profile=afkProfile(afk.current);
-    if (!profile || !profile.hunt?.trim()) return false;
-    BOT_CONFIG.huntName=profile.hunt.trim();
+    const chosen=afkHuntFor(afk.current);
+    if (!profile || !chosen?.hunt) return false;
+    BOT_CONFIG.huntName=chosen.hunt;
     BOT_CONFIG.lastHuntName=BOT_CONFIG.huntName;
-    BOT_CONFIG.lureModo=profile.lure==='off'?'off':'max';
+    BOT_CONFIG.lureModo=chosen.lure;
     BOT_CONFIG.minStaminaHours=Number(profile.stamina);
     botSaveConfig();
     return true;
   };
   const afkStop = (reason='AFK parado') => {
     afk.enabled=false; afk.phase='idle'; afk.target=''; afk.stage='';
+    afk.levelTransition=null; afk.runningTier=null; afkLevelProbe='';
     afk.selectedVerified=false; afk.selectionAttempts=0; afk.selectedAt=0;
     BOT_CONFIG.botAtivo=false;
     botSaveConfig();
@@ -4531,14 +4782,20 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       afkSay('Marque os personagens na Ordem de execução antes de iniciar.', 'warn'); return;
     }
     if (!afk.current?.trim()) {
-      afkSay('Informe o personagem que está aberto no jogo.', 'warn'); return;
+      afkSay('Personagem ainda nao detectado. Entre no mundo pelo Stonegy para confirmar automaticamente.', 'warn'); return;
     }
     if (afkNorm(sequence[0])!==afkNorm(afk.current)) {
-      afkSay(`Ordem começa por ${sequence[0]}. Entre nele e escolha-o em Personagem atual.`, 'warn'); return;
+      afkSay(`A fila começa por ${sequence[0]}. Entre com esse personagem no Stonegy antes de iniciar.`, 'warn'); return;
     }
     const profile=afkProfile(afk.current);
-    if (!profile?.hunt?.trim()) {
-      afkSay(`Configure a Hunt de ${afk.current} na própria aba AFK.`, 'warn'); return;
+    if (!afkHuntFor(afk.current)?.hunt) {
+      const rows=afkHunts(profile);
+      const level=afkLevel(afk.current);
+      const configured=afkValidHunts(profile) && rows.some(r=>String(r.hunt||'').trim());
+      const reason=!configured ? `Configure a Hunt de ${afk.current}.`
+        : level===null ? `Level de ${afk.current} não detectado. Abra o perfil nativo ou visite SEUS PERSONAGENS para atualizar a lista.`
+        : `Level ${level} fora das Hunts configuradas para ${afk.current}; confira o level mínimo inicial.`;
+      afkSay(reason, 'warn'); return;
     }
     if (afkSelectionRoot() || afkFindEnterWorld()) {
       afkSay(`Entre no mundo com ${afk.current} antes de iniciar o AFK.`, 'warn'); return;
@@ -4554,6 +4811,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     // desse ciclo; nunca criamos outro motor ou interrompemos uma acao async.
     afk.solo={hunt:BOT_CONFIG.huntName,lure:BOT_CONFIG.lureModo,stamina:BOT_CONFIG.minStaminaHours};
     afk.enabled=true; afk.phase='hunt'; afk.target=''; afk.stage='';
+    afk.levelTransition=null; afk.runningTier=null; afkLevelProbe='';
     afk.selectedVerified=false; afk.selectionAttempts=0; afk.selectedAt=0;
     afk.visited=[]; afk.attempt=0; afk.lastAction=Date.now();
     if (!afkApplyProfile()) {afkStop('Perfil AFK inválido.');return;}
@@ -4692,6 +4950,66 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     const h=buttons[0];
     return h.closest('.highlight-animation') || h;
   };
+  // Identificacao automatica SOMENTE apos uma entrada confirmada no jogo.
+  // Isso cobre a escolha MANUAL no Stonegy, alem da rotacao AFK existente.
+  // Nunca assumir o primeiro cartao como "personagem aberto no jogo".
+  const afkCaptureManualEntry = event => {
+    if (!event.isTrusted || (afk.enabled && afk.phase==='switch')) return;
+    const target=event.target;
+    if (!(target instanceof Element)) return;
+    const world=afkFindEnterWorld();
+    if (!world || !world.contains(target)) return;
+    const cards=afkFindCards();
+    if (cards.length<2) return;
+    const selected=afkSelectedCard(cards);
+    if (!selected) return;
+    // O clique no botao inicia a navegacao, mas nao confirma login.
+    afk.pendingLogin={name:selected.name,vocation:selected.vocation,at:Date.now()};
+    afk.detectedSource='aguardando entrada';
+    afkPersist();
+  };
+  const afkAutoIdentityTick = () => {
+    // O motor de troca ja confirma o proprio destino na funcao afkDriveSwap.
+    // Nao sobrescrever afk.current durante a navegacao automatica.
+    if (afk.enabled && afk.phase==='switch') return;
+    const now=Date.now();
+    const cards=afkFindCards();
+    if (cards.length>=2) {
+      // O personagem anterior nao deve ser apresentado como "aberto no jogo"
+      // enquanto o Stonegy esta na tela SEUS PERSONAGENS.
+      if (!afk.enabled && !afk.pendingLogin && afk.detectedSource!=='aguardando entrada') {
+        afk.current='';
+        afk.currentVocation='';
+        afk.detectedSource='aguardando entrada';
+        afkPersist();
+      }
+      return;
+    }
+    const pending=afk.pendingLogin;
+    if (!pending) return;
+    if (!pending.name || !Number.isFinite(pending.at) || now-pending.at>45000) {
+      afk.pendingLogin=null;
+      if (afk.detectedSource==='aguardando entrada') afk.detectedSource='nao confirmado';
+      afkPersist();
+      return;
+    }
+    // Confirmacao conservadora: a selecao saiu, o botao de entrar sumiu,
+    // e a interface de jogo (Hunt, Play/Explore ou Treino) apareceu.
+    if (afkFindEnterWorld() ||
+        !(botFindPlayButton() || botFindGameModePanel() || botTreinando() || botInHunt())) return;
+    const name=String(pending.name).trim();
+    afk.pendingLogin=null;
+    if (!name) return;
+    if (afk.enabled && afk.phase==='hunt' && afk.current && afkNorm(afk.current)!==afkNorm(name)) {
+      afkStop('Troca manual detectada. AFK pausado para evitar usar o perfil errado.');
+    }
+    afk.current=name;
+    afk.currentVocation=afkVocation(name) || (/^(monk|paladin|knight|sorcerer|druid)$/i.test(String(pending.vocation||'')) ? pending.vocation.toLowerCase() : '');
+    afk.detectedSource='entrada manual confirmada';
+    afk.detectedAt=now;
+    afkSay(`Personagem aberto identificado automaticamente: ${name}.`, 'success');
+    afkPersist();
+  };
   // A tela de personagens pode exibir ENTRAR NO MUNDO com o PRIMEIRO
   // personagem ja selecionado. Um clique enviado nao confirma a selecao.
   // O cartao realmente ativo tem background linear-gradient no Stonegy.
@@ -4791,9 +5109,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       }
       if (!afk.selectedVerified) {afkStop('Entrada sem confirmar selecao; AFK pausado.');return;}
       const entering=afk.target;
-      afk.current=entering;afk.target='';afk.stage='';afk.phase='hunt';
+      afk.current=entering;afk.currentVocation=afkVocation(entering);afk.target='';afk.stage='';afk.phase='hunt';
       afk.selectionAttempts=0;afk.selectedAt=0;afk.selectedVerified=false;
       afk.detectedSource='entrada apos selecionar cartao';
+      afk.detectedAt=now;
       if (!afkApplyProfile()) {afkStop('Hunt nao configurada para '+afk.current);return;}
       afkSay(`Personagem atual atualizado para ${afk.current}; iniciando venda.`, 'success');
       afkPersist();
@@ -4826,6 +5145,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     afk.lastAction=now;afk.attempt++;afkPersist();
   };
   const afkTick = () => {
+    afkAutoIdentityTick();
     afkScanRoster();
     if (!afk.enabled) return;
     if (window.__emerickPartyGate?.enabled) {afkStop('Party ativada; AFK interrompido.');return;}
@@ -4837,6 +5157,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       return;
     }
     if (afk.phase!=='hunt' || botHuntAsyncRunning || botTrainingAsyncRunning || botBusy) return;
+    if (afkTransitionTick()) return;
     // Recupera o motor caso o navegador tenha recarregado com AFK ativo,
     // mas BOT_CONFIG.botAtivo desligado. Nao reinicia outra Hunt no meio.
     if (!BOT_CONFIG.botAtivo && !afkSelectionRoot() && !afkFindEnterWorld() &&
@@ -4849,9 +5170,10 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     // entre ciclos, nunca no meio da Hunt, venda ou treinamento.
     if (!botInHunt() && !botTreinando() && !botGetFlow()) {
       const active=afkProfile(afk.current);
-      if (active?.hunt?.trim() && (
-        BOT_CONFIG.huntName!==active.hunt.trim() ||
-        BOT_CONFIG.lureModo!==(active.lure==='off'?'off':'max') ||
+      const chosen=afkHuntFor(afk.current);
+      if (chosen?.hunt && (
+        BOT_CONFIG.huntName!==chosen.hunt ||
+        BOT_CONFIG.lureModo!==chosen.lure ||
         BOT_CONFIG.minStaminaHours!==Number(active.stamina)
       )) {
         afkApplyProfile();
@@ -4881,19 +5203,17 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   };
   const afkBind = root => {
     const current=root.querySelector('[data-afk-current]');
-    const hunt=root.querySelector('[data-afk-hunt]');
-    const lure=root.querySelector('[data-afk-lure]');
     const stamina=root.querySelector('[data-afk-stamina]');
+    const levels=root.querySelector('[data-afk-level-list]');
+    const addHunt=root.querySelector('[data-afk-add-hunt]');
     const queue=root.querySelector('[data-afk-queue]');
-    const add=root.querySelector('[data-afk-add]');
     const saveEditing=() => {
       if (!afk.editing) return;
       const profile=afkProfile(afk.editing);
       if (!profile) return;
-      profile.hunt=hunt.value.trim();
-      profile.lure=lure.value==='off'?'off':'max';
       profile.stamina=Number(stamina.value);
-      profile.skill=root.querySelector('[data-afk-skill]')?.value||'auto';
+      const skill=root.querySelector('[data-afk-skill]');
+      if (skill) profile.skill=skill.value;
       afkPersist();
     };
     const setEditing=name=>{
@@ -4905,48 +5225,52 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       afk.editing=found.name;
       afkPersist();afkRender(root,true);
     };
-    current.addEventListener('change',()=>{
-      if (afk.enabled) return;
-      afk.current=current.value.trim();
-      // Atualizar apenas a identidade declarada do personagem NO JOGO.
-      // Não cria perfil nem marca personagem automaticamente.
-      afkPersist();afkRender(root);
-    });
-    current.addEventListener('blur',()=>{
-      if (afk.enabled) return;
-      afk.current=current.value.trim();afkPersist();
-    });
-    for (const field of [hunt,lure,stamina,root.querySelector('[data-afk-skill]')].filter(Boolean)) {
+    for (const field of [stamina,root.querySelector('[data-afk-skill]')].filter(Boolean)) {
       field.addEventListener('input',saveEditing);
       field.addEventListener('change',()=>{saveEditing();afkRender(root);});
     }
-    hunt.addEventListener('blur',()=>{saveEditing();afkRender(root);});
-    const addCharacter=()=>{
-      if (afk.enabled && afk.phase==='switch') {
-        afkSay('Aguarde concluir a troca para adicionar outro personagem.', 'warn');return;
+    levels.addEventListener('input',event=>{
+      const control=event.target.closest('[data-afk-level-field]');
+      if (!control || !afk.editing) return;
+      const p=afkProfile(afk.editing),rows=afkHunts(p);
+      const index=Number(control.closest('[data-afk-level-index]')?.dataset.afkLevelIndex);
+      if (!Number.isInteger(index)||index<0||index>=rows.length) return;
+      const field=control.dataset.afkLevelField, raw=control.value;
+      if (field==='minLevel') {
+        const level=Number(raw);
+        if (!/^\d{1,4}$/.test(raw)||!Number.isSafeInteger(level)||level<1||level>9999||
+            (index>0&&level<=Number(rows[index-1].minLevel))||
+            (index<rows.length-1&&level>=Number(rows[index+1].minLevel))) {
+          control.setCustomValidity('Use um level maior que o anterior e menor que o proximo.');return;
+        }
+        control.setCustomValidity('');rows[index].minLevel=level;
+      } else if (field==='hunt') rows[index].hunt=raw.trim();
+      else if (field==='lure') rows[index].lure=raw==='off'?'off':'max';
+      else return;
+      p.hunt=rows[0].hunt;p.lure=rows[0].lure; // espelha valores legados
+      afkPersist();
+    });
+    levels.addEventListener('change',event=>{
+      const input=event.target.closest('[data-afk-level-field]');
+      if (input?.dataset.afkLevelField==='minLevel' && !input.checkValidity()) {
+        const index=Number(input.closest('[data-afk-level-index]')?.dataset.afkLevelIndex);
+        input.setCustomValidity('');input.value=String(afkHunts(afkProfile(afk.editing))[index].minLevel);
       }
-      const name=String(add.value||'').trim();
-      if (!name) {afkSay('Informe o nome do personagem que deseja adicionar.','warn');afkRender(root);return;}
-      if (name.length>60) {afkSay('Nome muito longo.','warn');afkRender(root);return;}
-      const existing=afkQueueSync().find(x=>afkNorm(x.name)===afkNorm(name));
-      if (existing) {
-        afkSay(`${existing.name} já consta na lista. Selecione-o para editar.`);
-        add.value='';setEditing(existing.name);return;
-      }
-      afkProfile(name);
-      afkQueueSync();
-      add.value='';
-      afkSay(`${name} adicionado. Defina sua Hunt e marque para participar.`,'success');
-      setEditing(name);
-    };
-    root.querySelector('[data-afk-add-btn]').addEventListener('click',addCharacter);
-    add.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addCharacter();}});
-    root.querySelector('[data-afk-scan]').addEventListener('click',()=>{
-      if (afk.enabled && afk.phase==='switch') return;
-      const found=afkScanRoster();
-      if (!found.length) afkSay('Para detectar automaticamente, abra Engrenagem → Trocar Personagem uma vez. Ou adicione os nomes manualmente.','warn');
-      else afkSay(`${found.length} personagens encontrados. Selecione qualquer um para configurar.`,'success');
-      afkRender(root,true);
+      afkRender(root);
+    });
+    levels.addEventListener('click',event=>{
+      const remove=event.target.closest('[data-afk-remove-hunt]');
+      if (!remove || !afk.editing) return;
+      const p=afkProfile(afk.editing),rows=afkHunts(p),index=Number(remove.dataset.afkRemoveHunt);
+      if (index>0 && index<rows.length) {rows.splice(index,1);afkPersist();afkRender(root,true);}
+    });
+    addHunt.addEventListener('click',()=>{
+      const p=afkProfile(afk.editing);if (!p) return;
+      const rows=afkHunts(p);if (rows.length>=8 || !afkValidHunts(p)) return;
+      const minLevel=Math.min(9999,Number(rows.at(-1).minLevel)+(rows.length===1&&Number(rows[0].minLevel)===1?99:100));
+      if (minLevel<=Number(rows.at(-1).minLevel)) return;
+      rows.push({minLevel,hunt:'',lure:'max'});
+      afkPersist();afkRender(root,true);
     });
     queue.addEventListener('change',event=>{
       const check=event.target.closest?.('[data-afk-include]');
@@ -4982,9 +5306,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       if (afk.enabled) afkStop('AFK parado manualmente.');
       else {
         saveEditing();
-        // Campo atual é a identidade declarada, NÃO o perfil que está em edição.
-        afk.current=current.value.trim();
-        afkPersist();
+        // Identidade confirmada automaticamente por ENTRAR NO MUNDO.
+        // Nao copiar valores do campo visual nem inferir pelo perfil editado.
         afkStart();
       }
       afkRender(root,true);
@@ -5006,17 +5329,32 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     }
     const profile=afkProfile(afk.editing);
     const actual=root.querySelector('[data-afk-current]');
-    if (actual && (force || actual!==active) && actual.value!==afk.current) actual.value=afk.current;
+    const shownName=afk.enabled && afk.phase==='switch' && afkFindCards().length>=2 ? '' : afk.current;
+    if (actual && actual.value!==shownName) actual.value=shownName;
     if (actual) {
       // A entrada confirmada atualiza afk.current automaticamente. Um perfil
       // selecionado no editor nao corresponde ao personagem autenticado.
-      actual.disabled=afk.enabled;
-      actual.title=afk.enabled ? 'Identidade atualizada automaticamente na troca; não editável durante AFK' :
-        'Antes da primeira troca, confirme o personagem; as próximas entradas atualizam este campo';
+      actual.readOnly=true;
+      actual.disabled=false;
+      const detected=String(afk.detectedSource||'');
+      actual.title=detected.startsWith('entrada')
+        ? 'Identificado automaticamente ao entrar no mundo'
+        : 'Detecta automaticamente na selecao e entrada do Stonegy';
+    }
+    const currentBadge=root.querySelector('[data-afk-current-vocation]');
+    if (currentBadge) currentBadge.textContent=shownName ? (afkVocation(shownName)||afk.currentVocation||'DESCONHECIDA').toUpperCase() : 'AGUARDANDO';
+    const identityHint=root.querySelector('[data-afk-identity-hint]');
+    if (identityHint) {
+      const detected=String(afk.detectedSource||'');
+      identityHint.textContent=detected.startsWith('entrada') && afk.current
+        ? `Detectado: ${afk.current} · ${(afkVocation(afk.current)||afk.currentVocation||'vocação pendente').toUpperCase()}. Editar um perfil não troca no jogo.`
+        : detected==='aguardando entrada'
+          ? 'Aguardando ENTRAR NO MUNDO para confirmar o personagem.'
+          : afk.current
+            ? `Última identidade registrada: ${afk.current}. Confirme entrando no mundo pelo Stonegy.`
+            : 'Aguardando uma entrada confirmada no Stonegy; não é necessário cadastrar personagens.';
     }
     for (const [field,value] of [
-      ['hunt',profile?.hunt||''],
-      ['lure',profile?.lure==='off'?'off':'max'],
       ['stamina',String(profile?.stamina??1)],
       ['skill',profile?.skill||'auto']
     ]) {
@@ -5025,6 +5363,37 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       if ((force || el!==active) && el.value!==value) el.value=value;
       // Edicao dos perfis nunca depende de AFK estar ligado.
       el.disabled=!profile;
+    }
+    const rowsNode=root.querySelector('[data-afk-level-list]');
+    const rows=afkHunts(profile);
+    const count=root.querySelector('[data-afk-count]');
+    if (count) count.textContent=rows.length+' '+(rows.length===1?'hunt':'hunts');
+    const add=root.querySelector('[data-afk-add-hunt]');
+    if (add) add.disabled=!profile || rows.length>=8 || !afkValidHunts(profile);
+    const sig=JSON.stringify([afk.editing,rows]);
+    if (rowsNode && rowsNode.dataset.signature!==sig &&
+        (force || !rowsNode.contains(active))) {
+      rowsNode.replaceChildren(...rows.flatMap((r,index)=>{
+        const line=document.createElement('div');line.className='afk-level-row';line.dataset.afkLevelIndex=index;
+        const min=document.createElement('input');min.type='number';min.min='1';min.max='9999';min.step='1';
+        min.className='afk-level-min';min.dataset.afkLevelField='minLevel';min.value=String(r.minLevel);
+        min.title='Level inicial desta Hunt';min.setAttribute('aria-label','Level minimo da Hunt '+(index+1));
+        const hunt=document.createElement('input');hunt.type='text';hunt.className='afk-level-hunt';
+        hunt.dataset.afkLevelField='hunt';hunt.value=r.hunt||'';hunt.placeholder='Hunt alvo';
+        hunt.setAttribute('aria-label','Nome da Hunt '+(index+1));
+        const lure=document.createElement('select');lure.className='afk-level-lure';lure.dataset.afkLevelField='lure';
+        for (const mode of ['max','off']) {const option=document.createElement('option');option.value=mode;
+          option.textContent=mode.toUpperCase();lure.append(option);}
+        lure.value=r.lure==='off'?'off':'max';lure.title='Lure exclusivo desta Hunt';
+        const remove=document.createElement('button');remove.type='button';remove.className='afk-level-remove';
+        remove.dataset.afkRemoveHunt=index;remove.title='Excluir esta Hunt';remove.textContent='×';
+        if (index===0) {remove.disabled=true;remove.style.visibility='hidden';}
+        line.append(min,hunt,lure,remove);
+        const note=document.createElement('small');note.className='afk-level-range';
+        note.textContent=index===rows.length-1 ? `Level ${r.minLevel}+` : `Level ${r.minLevel}–${Number(rows[index+1].minLevel)-1}`;
+        return [line,note];
+      }));
+      rowsNode.dataset.signature=sig;
     }
     const heading=root.querySelector('[data-afk-editing]');
     if (heading) heading.textContent=afk.editing||'Selecione um personagem';
@@ -5035,22 +5404,14 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     if (hint) hint.textContent=profile
       ? (afk.enabled
         ? 'Edicoes salvas. O personagem atual usa as mudancas no proximo ciclo seguro.'
-        : 'Hunt, Lure, Stamina e Skill salvos automaticamente para este personagem.')
-      : 'Adicione ou selecione um personagem para configurar.';
-    const data=root.querySelector('[data-afk-names]');
-    if (data) {
-      const names=afkNames();
-      const previous=[...data.children].map(x=>x.value).join('|');
-      if (names.join('|')!==previous) data.replaceChildren(...names.map(name=>{
-        const option=document.createElement('option');option.value=name;return option;
-      }));
-    }
+        : 'Hunts, Lures e Stamina salvos automaticamente para este personagem.')
+      : 'Aguarde a leitura da lista SEUS PERSONAGENS no Stonegy.';
     const queue=root.querySelector('[data-afk-queue]');
     if (queue) {
       const signature=JSON.stringify([list,afk.enabled,afk.phase,afk.current,afk.visited,afk.editing,list.map(x=>{
         const p=afkProfiles.profiles[afkNorm(x.name)];
         const v=afkProfiles.roster.find(c=>afkNorm(c.name)===afkNorm(x.name));
-        return [p?.hunt||'',v?.vocation||''];
+        return [afkHunts(p),v?.vocation||'',v?.level||0];
       })]);
       if (queue.dataset.signature!==signature) {
         queue.dataset.signature=signature;
@@ -5072,7 +5433,12 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           const secondary=document.createElement('small');
           const info=afkProfiles.profiles[afkNorm(row.name)];
           const voc=afkProfiles.roster.find(c=>afkNorm(c.name)===afkNorm(row.name))?.vocation;
-          secondary.textContent=[voc?String(voc).toUpperCase():null,info?.hunt?.trim()||'Hunt não configurada'].filter(Boolean).join(' · ');
+          const selectedHunt=afkHuntFor(row.name);
+          const present=afkHunts(info).some(r=>String(r.hunt||'').trim());
+          const description=selectedHunt?.hunt || (present
+            ? (afkLevel(row.name)===null?'Level não identificado':'Level fora das faixas')
+            : 'Hunt não configurada');
+          secondary.textContent=[voc?String(voc).toUpperCase():null,description].filter(Boolean).join(' · ');
           pick.append(main,secondary);
           el.append(check,pick);
           const arrows=document.createElement('div');arrows.className='afk-queue-arrows';
@@ -5095,17 +5461,11 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           return el;
         }):[(()=>{
           const el=document.createElement('p');el.className='afk-queue-empty';
-          el.textContent='Abra Trocar Personagem para ler a lista, ou adicione os nomes abaixo.';
+          el.textContent='Personagens detectados automaticamente quando a tela SEUS PERSONAGENS aparecer.';
           return el;
         })()]));
       }
     }
-    const add=root.querySelector('[data-afk-add]');
-    if (add) add.disabled=afk.enabled && afk.phase==='switch';
-    const addButton=root.querySelector('[data-afk-add-btn]');
-    if (addButton) addButton.disabled=afk.enabled && afk.phase==='switch';
-    const scan=root.querySelector('[data-afk-scan]');
-    if (scan) scan.disabled=afk.enabled && afk.phase==='switch';
     const status=root.querySelector('[data-afk-status]');
     if (status) {
       const phase=afk.enabled ? (afk.phase==='switch'?'TROCANDO PERSONAGEM':'HUNT ATIVA') : 'DESLIGADO';
@@ -5122,9 +5482,11 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     const order=root.querySelector('[data-afk-order]');
     if (order) order.textContent=sequence.length?'Ordem: '+sequence.join(' → '):'Nenhum personagem selecionado para jogar.';
     const roster=root.querySelector('[data-afk-roster]');
-    if (roster) roster.textContent=sequence.length
-      ? `${sequence.length} incluído(s) · ${list.length-sequence.length} ignorado(s). Clique no nome para editar sem entrar no jogo.`
-      : 'Marque os personagens participantes. Os desmarcados não entram na rotação.';
+    if (roster) roster.textContent=!afkProfiles.roster.length
+      ? 'Lista ainda não detectada. Na tela SEUS PERSONAGENS, o bot registra os nomes e as vocações automaticamente.'
+      : sequence.length
+        ? `${sequence.length} incluído(s) · ${list.length-sequence.length} ignorado(s). Nomes e vocações lidos do Stonegy.`
+        : 'Marque quem participa da rotação; os demais são ignorados. Sem cadastro manual.';
   };
 
   // No reload que ocorre na troca, nunca religar o motor enquanto o menu
@@ -5146,7 +5508,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     if (Date.now() < botRestartCooldownUntil) return;
     const current = botInHunt();
     botHuntState = current;
-    if (!current && !botGetFlow() && !botHuntAsyncRunning && !botTrainingAsyncRunning) {
+    if (!current && !botGetFlow() && !botHuntAsyncRunning && !botTrainingAsyncRunning &&
+        !(afk.enabled && afk.levelTransition)) {
       if (!botScreenIsStable()) { botUpdatePanel(); return; }
       if (Date.now() - botMonitorLastSetFlow < BOT_MONITOR_COOLDOWN_MS) { botUpdatePanel(); return; }
       const next = botDecideNextStep();
@@ -5183,6 +5546,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       });
     });
     botObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    // Captura uma entrada MANUAL no mundo, sem interceptar ou clicar no jogo.
+    document.addEventListener('click', afkCaptureManualEntry, true);
     document.addEventListener("keydown", (e) => { if (e.altKey && e.shiftKey && e.key.toLowerCase() === "r") { e.preventDefault(); botStartReturn(); } });
     document.addEventListener("keydown", (e) => { if (e.altKey && e.shiftKey && e.key.toLowerCase() === "s") { e.preventDefault(); botKillSwitch(); } });
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { botHuntState = botInHunt(); botProcess(); } });
@@ -5241,7 +5606,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.43",
+    version: "6.2.52",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,

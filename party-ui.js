@@ -241,10 +241,13 @@
         setPositionMessage('Para salvar: informe personagem, vocação e hunt do líder.');
         return;
       }
-      if (cooldownLeft() > 0) {
+      // O cooldown da automacao nao impede salvar uma mudanca MANUAL do lider.
+      // Membros mantem a regra de movimentacao anterior.
+      if (cooldownLeft() > 0 && role.value !== 'leader') {
         setPositionMessage('Aguarde 1 minuto entre mudanças de posição.');
         return;
       }
+      if (role.value === 'leader' && choice === 'knight') return;
       const pos = parseTile(tile);
       if (!pos) return;
       const values = readMap(POSITIONS_KEY);
@@ -309,6 +312,13 @@
       }
       positioning.noGameSince=0;
       positioning.hadGame=true;
+      // Knight lider nao abre posicionamento; usa a posicao fixa do jogo.
+      if (role.value === 'leader' && getVocation(name.value) === 'knight') {
+        setPositionMessage(nativeKnightLeader()
+          ? 'Knight lider: posicao fixa; Lure apos prontidao.'
+          : 'Knight lider: aguardando confirmacao do perfil nativo.');
+        return;
+      }
       const hunt = huntName();
       const vocationName = getVocation(name.value);
       if (!hunt || !VOCATIONS.has(vocationName)) {
@@ -327,6 +337,14 @@
         setGate();
       }
       const saved = getPosition(hunt);
+      // Lider nao-Knight sem escolha salva: manter posicao atual, sem bloquear Lure.
+      // Se o usuario clicar na grade, saveManualTile grava a nova escolha.
+      if (role.value === 'leader' && !saved) {
+        setPositionMessage(leaderProfileConfirmed()
+          ? 'Lider: posicao atual. Outra escolha sera salva automaticamente.'
+          : 'Lider: aguardando confirmacao do perfil nativo.');
+        return;
+      }
       if (squares.length >= 3) {
         const grid = squares[0].parentElement;
         if (positioning.grid !== grid) {
@@ -456,16 +474,45 @@
       }
       if (bot.getFlow?.()) bot.clearFlow?.();
     };
+    // Perfil nativo: confirmar nome e vocacao; nunca supor pelo seletor do painel.
+    const nativeLeaderVocation = () => {
+      if (role.value !== 'leader') return '';
+      const expected=norm(name.value);
+      if (!expected) return '';
+      const matches=[];
+      for (const avatar of document.querySelectorAll('[data-guide="character-profile-avatar"]')) {
+        if (avatar.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
+        const info=avatar.parentElement?.nextElementSibling;
+        const headings=[...(info?.querySelectorAll('h5') || [])];
+        if (headings.length !== 2) continue;
+        if (norm(headings[1].textContent) === expected) matches.push(norm(headings[0].textContent));
+      }
+      return matches.length === 1 ? matches[0] : '';
+    };
+    const leaderProfileConfirmed = () => {
+      const choice=getVocation(name.value);
+      return VOCATIONS.has(choice) && nativeLeaderVocation() === choice;
+    };
+    const nativeKnightLeader = () => getVocation(name.value) === 'knight' && leaderProfileConfirmed();
     const setGate = () => {
-      const game = state.enabled && partyInHunt();
-      const waitingReady = Boolean(game && nativeDialog());
+      const game=state.enabled && partyInHunt();
+      const waitingReady=Boolean(game && nativeDialog());
+      const leader=role.value === 'leader';
+      const choice=getVocation(name.value);
+      const currentHunt=game ? huntName() : '';
+      const saved=leader && currentHunt ? getPosition(currentHunt) : null;
+      // Knight: nao se move. Lider de outra vocacao: aceita posicao atual;
+      // se ha uma escolha salva, aguarda reaplica-la nesta entrada.
+      const leaderPending=leader && (!leaderProfileConfirmed() ||
+        (choice !== 'knight' && Boolean(saved) &&
+          (!positioning.applied || positioning.hunt !== positionId(currentHunt))));
       window.__emerickPartyGate = {
         enabled:state.enabled,
-        isLeader:role.value === 'leader',
+        isLeader:leader,
         readyPending:waitingReady,
-        positionPending:Boolean(game && !positioning.applied),
+        positionPending:Boolean(game && (leader ? leaderPending : !positioning.applied)),
       };
-      return state.enabled && role.value === 'leader';
+      return state.enabled && leader;
     };
     const stopParty = () => {
       pauseHuntBot();
@@ -659,7 +706,14 @@
       text('[data-party-vocation-label]',getVocation(name.value)||'não definida');
       const currentHunt=huntName();
       const saved=currentHunt?getPosition(currentHunt):null;
-      text('[data-party-position]',!currentHunt?'aguardando hunt':saved?`${saved.x},${saved.y}`:'não configurada');
+      const isLeader=role.value==='leader';
+      const isKnight=isLeader && getVocation(name.value)==='knight';
+      const profileOK=isLeader && leaderProfileConfirmed();
+      const positionText=!currentHunt ? 'aguardando hunt'
+        : isKnight ? (profileOK ? 'fixa · Knight' : 'aguardando perfil Knight')
+        : isLeader && !profileOK ? 'aguardando perfil do lider'
+        : saved ? `${saved.x},${saved.y} · salva` : isLeader ? 'posicao atual' : 'não configurada';
+      text('[data-party-position]',positionText);
       el('[data-party-error]').hidden=!state.error;
       text('[data-party-error]',state.error);
     }
