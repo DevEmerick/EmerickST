@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.59
+// // @version      6.2.60
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -5019,129 +5019,197 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   };
   // Diferentemente da função Solo, esta rotina NÃO espera horas e NÃO finaliza treino.
   async function afkBeginTraining(skillOverride = null) {
+    // Nao clicar novamente em Training quando a tela ja esta aberta.
     if (botTreinando()) return true;
     if (botInHunt()) {
-      afkSay('Aguardando o jogo encerrar a hunt.');
+      afkSay('Aguardando terminar a Hunt antes do treino.');
       return false;
     }
 
-    let mode=botFindGameModePanel();
-    if (!mode) {
-      const play=botFindPlayButton();
-      if (!play || !botClick(play)) {
-        afkSay('Nao foi possivel abrir Modos de jogo.','warn');
-        return false;
+    const scope=() => {
+      const panel=document.querySelector('[data-guide="training-standard-panel"]');
+      const start=botFindStartTrainingButton();
+      return panel && panel.isConnected && botVisible(panel) &&
+        start && start.isConnected && botVisible(start) ? panel : null;
+    };
+
+    if (!scope()) {
+      if (!botFindGameModePanel()) {
+        const play=botFindPlayButton();
+        if (!play || !botClick(play)) {
+          afkSay('Nao consegui abrir Modos de jogo.','warn');
+          return false;
+        }
+        if (!await botEsperarAte(()=>botFindGameModePanel(),8000)) {
+          afkSay('Modos de jogo nao apareceu em 8s.','warn');
+          return false;
+        }
       }
-      mode=await botEsperarAte(()=>botFindGameModePanel(),8000);
-      if (!mode) {
-        afkSay('Modos de jogo nao abriu em 8 segundos.','warn');
-        return false;
+
+      if (!scope()) {
+        const mode=await botEsperarAte(()=>botFindTrainingModeButton(),7000);
+        if (!mode || !mode.isConnected || !botVisible(mode)) {
+          afkSay('Opcao Training nao encontrada.','warn');
+          return false;
+        }
+        // Clique direto no controle nativo, sem subir ao ancestral.
+        try { mode.click(); }
+        catch (_) {
+          afkSay('Erro no clique nativo de Training.','warn');
+          return false;
+        }
+        if (!await botEsperarAte(scope,8000)) {
+          afkSay('Cliquei Training, mas a tela de treino nao abriu.','warn');
+          return false;
+        }
       }
     }
 
-    // Aguardar o React renderizar a opcao de treinamento.
-    const training=await botEsperarAte(()=>botFindTrainingModeButton(),7500);
-    if (!training || !botClick(training)) {
-      afkSay('Modos abriu, mas botao Training nao foi encontrado/clicado.','warn');
-      return false;
-    }
+    afkSay('Tela Training confirmada; verificando skill.');
 
-    // Respeitar a skill configurada para cada vocacao.
     const own=afkProfile(afk.current);
     const profession=afkProfiles.roster.find(c=>
       afkNorm(c.name)===afkNorm(afk.current)
     )?.vocation?.toLowerCase()||'';
 
     const autoSkill={
-      monk:'Fist',
-      paladin:'Distance',
-      sorcerer:'Magic',
-      druid:'Magic'
+      monk:'Fist', paladin:'Distance',
+      sorcerer:'Magic', druid:'Magic'
     }[profession];
 
     const desired=skillOverride ||
       (own?.skill && own.skill!=='auto' ? own.skill : autoSkill);
 
     if (!desired) {
+      afkSay(`Defina uma skill de treino para ${afk.current}.`,'warn');
+      return false;
+    }
+
+    const alias={
+      fist:'FIST',distance:'DISTANCE',magic:'MAGIC',
+      sword:'SWORD',axe:'AXE',club:'CLUB'
+    };
+    const wanted=alias[String(desired).trim().toLowerCase()];
+
+    if (!wanted) {
+      afkSay(`Skill desconhecida: ${desired}. Nao vou iniciar.`,'warn');
+      return false;
+    }
+
+    const allSkills=new Set([
+      'SWORD','AXE','CLUB','FIST','DISTANCE','MAGIC'
+    ]);
+
+    const findChoices=()=>{
+      if (!scope()) return null;
+
+      // As seis skills compartilham um mesmo container.
+      for (const p of document.querySelectorAll('p')) {
+        if (!p.isConnected || !botVisible(p) ||
+            botNormalize(p.textContent)!==wanted ||
+            p.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) {
+          continue;
+        }
+
+        const card=p.parentElement;
+        const group=card?.parentElement;
+        if (!card || !group || !card.isConnected) continue;
+
+        const choices=[...group.children].map(child=>({
+          card:child,
+          label:botNormalize(child.querySelector('p')?.textContent||'')
+        })).filter(x=>allSkills.has(x.label) && x.card.isConnected);
+
+        if (choices.length===6 &&
+            new Set(choices.map(x=>x.label)).size===6 &&
+            choices.filter(x=>x.label===wanted).length===1) {
+          return choices;
+        }
+      }
+      return null;
+    };
+
+    const choices=await botEsperarAte(findChoices,8000);
+    if (!choices) {
       afkSay(
-        `Selecione SKILL TREINO para ${afk.current} (${profession||'vocacao desconhecida'}).`,
+        `Painel de skills nao identificado para ${desired}; treino interrompido.`,
         'warn'
       );
       return false;
     }
 
-    const aliases={
-      fist:['FIST','FIST FIGHTING'],
-      distance:['DISTANCE','DISTANCE FIGHTING'],
-      magic:['MAGIC','MAGIC LEVEL'],
-      sword:['SWORD','SWORD FIGHTING'],
-      axe:['AXE','AXE FIGHTING'],
-      club:['CLUB','CLUB FIGHTING']
+    const target=choices.find(x=>x.label===wanted).card;
+
+    // Verificar a selecao sem fixar as classes css-*.
+    const selected=()=>{
+      if (!target.isConnected || !scope()) return false;
+
+      if (target.matches(
+        '[aria-checked="true"],[aria-selected="true"],' +
+        '[aria-pressed="true"],[data-state="selected"],[data-selected="true"]'
+      )) return true;
+
+      const peers=choices.filter(
+        x=>x.card!==target && x.card.isConnected
+      );
+      if (peers.length!==5) return false;
+
+      const classes=peers.map(x=>String(x.card.className||''));
+      const frequent=classes.find(
+        cl=>classes.filter(c=>c===cl).length>=4
+      );
+
+      return Boolean(
+        frequent && String(target.className||'')!==frequent
+      );
     };
-    const labels=new Set(
-      aliases[String(desired).trim().toLowerCase()] ||
-      [botNormalize(desired)]
-    );
 
-    const findSkill=()=>{
-      const matches=[
-        ...document.querySelectorAll('p,h5,button,[role="button"]')
-      ].filter(node=>
-        node.isConnected && botVisible(node) &&
-        !node.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]') &&
-        labels.has(botNormalize(node.textContent||''))
-      );
-      const leaf=matches.filter(node=>
-        !matches.some(other=>other!==node && node.contains(other))
-      );
-      return leaf.length===1?leaf[0]:null;
-    };
+    if (!selected()) {
+      afkSay(`Selecionando skill ${desired}.`);
+      try { target.click(); }
+      catch (_) {
+        afkSay(`Nao consegui clicar no cartao ${desired}.`,'warn');
+        return false;
+      }
 
-    // A tela pode aparecer antes de as skills estarem prontas.
-    await botEsperarAte(
-      ()=>botFindStartTrainingButton() || findSkill(),8000
-    );
-
-    const skill=await botEsperarAte(()=>findSkill(),6500);
-    if (!skill || !botClick(skill.parentElement||skill)) {
-      afkSay(
-        `Training abriu, mas a skill ${desired} nao foi localizada/clicada. Sem iniciar outra skill.`,
-        'warn'
-      );
-      return false;
+      if (!await botEsperarAte(selected,3500)) {
+        afkSay(
+          `Clique em ${desired} sem confirmacao visual. Sem iniciar treino.`,
+          'warn'
+        );
+        return false;
+      }
     }
-
-    await botJitter(250,500);
 
     const start=await botEsperarAte(
-      ()=>botFindStartTrainingButton(),8000
+      ()=>scope() && botFindStartTrainingButton(),6500
     );
-    if (!start) {
-      afkSay('Skill selecionada, mas START TRAINING nao apareceu.','warn');
+
+    if (!start || !start.isConnected || !botVisible(start)) {
+      afkSay('Skill confirmada, mas START TRAINING indisponivel.','warn');
       return false;
     }
 
-    // Clicar diretamente no highlight-animation nativo.
-    // Nao subir para um container maior por heuristica.
-    afkSay('START TRAINING localizado; confirmando inicio.');
-    try {
-      start.click();
-    } catch (_) {
-      afkSay('Falha ao clicar START TRAINING.','warn');
+    if (botTreinando()) return true;
+
+    afkSay(`Skill ${desired} confirmada; clicando START TRAINING.`);
+    try { start.click(); }
+    catch (_) {
+      afkSay('Erro no clique nativo START TRAINING.','warn');
       return false;
     }
 
-    // Somente prosseguir para troca apos confirmar o treino.
-    const started=await botEsperarAte(
+    const running=await botEsperarAte(
       ()=>botFindFinalizarTreinoButton(),12000
     );
-    if (!started) {
+
+    if (!running) {
       afkSay(
-        'START TRAINING clicado, mas treinamento nao foi confirmado; sem trocar.',
+        'Cliquei START TRAINING mas o jogo nao confirmou treino; sem trocar.',
         'warn'
       );
     }
-    return Boolean(started);
+    return Boolean(running);
   }
   function afkHandleTrainingStep() {
     if (!afk.enabled || afk.phase!=='hunt' || botTrainingAsyncRunning) return;
@@ -6139,7 +6207,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.59",
+    version: "6.2.60",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
