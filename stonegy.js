@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.57
+// // @version      6.2.58
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -5083,20 +5083,47 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     return matches.length===1 ? matches[0].closest('.css-1l740qp') || matches[0].parentElement : null;
   };
   const afkFindSwitchMenuOption = () => {
-    const candidates=[...document.querySelectorAll('p')].filter(p =>
-      !p.closest('#stonegy-tm-overlay') && botVisible(p) &&
-      afkNorm(p.textContent)==='TROCAR PERSONAGEM');
-    // Nao clique em textos homonimos fora do menu das configuracoes.
-    const opts=candidates.filter(p=>p.closest('.css-1gb1rig'));
-    return opts.length===1 ? opts[0] : null;
+    // Stonegy em portugues ou ingles, sem depender das classes css-*.
+    const labels=new Set([
+      'TROCAR PERSONAGEM','MUDAR PERSONAGEM',
+      'CHANGE CHARACTER','SWITCH CHARACTER'
+    ]);
+    const exact=el=>el?.isConnected &&
+      !el.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]') &&
+      botVisible(el) && labels.has(afkNorm(el.textContent||''));
+
+    const selectors='p,h5,h6,span,button,[role="menuitem"],[role="option"]';
+    let nodes=[...document.querySelectorAll(selectors)].filter(exact);
+
+    // Suporte a texto direto em div, sem usar hash do Material UI.
+    if (!nodes.length) {
+      nodes=[...document.querySelectorAll('div')].filter(el=>
+        el.children.length===0 && exact(el));
+    }
+
+    // Se houver elementos aninhados, usar somente o mais especifico.
+    const deepest=nodes.filter(el=>
+      !nodes.some(other=>other!==el && el.contains(other)));
+
+    if (deepest.length!==1) return null;
+
+    const el=deepest[0];
+    return el.closest(
+      'button,[role="menuitem"],[role="option"],[role="button"]'
+    ) || el;
   };
   const afkFindEnterWorld = () => {
-    const buttons=[...document.querySelectorAll('h5')].filter(h =>
-      !h.closest('#stonegy-tm-overlay') && botVisible(h) &&
-      afkNorm(h.textContent)==='ENTRAR NO MUNDO');
+    // Mesmo elemento nativo para Windows/Mac, independentemente do idioma.
+    const labels=new Set(['ENTRAR NO MUNDO','ENTER THE WORLD']);
+    const buttons=[...document.querySelectorAll('h5')].filter(h=>
+      h.isConnected &&
+      !h.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]') &&
+      botVisible(h) &&
+      labels.has(afkNorm(h.textContent||'')));
+
     if (buttons.length!==1) return null;
-    const h=buttons[0];
-    return h.closest('.highlight-animation') || h;
+
+    return buttons[0].closest('.highlight-animation') || buttons[0];
   };
   // Identificacao automatica SOMENTE apos uma entrada confirmada no jogo.
   // Isso cobre a escolha MANUAL no Stonegy, alem da rotacao AFK existente.
@@ -6024,7 +6051,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.57",
+    version: "6.2.58",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
