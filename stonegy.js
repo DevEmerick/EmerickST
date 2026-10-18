@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.62
+// // @version      6.2.63
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -4996,17 +4996,24 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     const sequence=afkSequence();
     const index=sequence.findIndex(name=>afkNorm(name)===afkNorm(afk.current));
     if (index<0) {afkStop('Personagem atual não está na fila selecionada.');return;}
-    const target=sequence[index+1];
-    if (!target) {
-      // A ultima pessoa da fila comecou seu treino; termina esta rodada.
-      // NUNCA clica em Finalizar Treino neste ponto.
-      afkStop('Rodada concluída. Último personagem permanece treinando.');
+    // Rotacao circular: o ultimo retorna ao primeiro habilitado.
+    if (sequence.length<2 ||
+        new Set(sequence.map(afkNorm)).size!==sequence.length) {
+      afkStop('Rotacao continua requer ao menos 2 personagens distintos habilitados.');
       return;
     }
-    if (!afk.visited.some(name=>afkNorm(name)===afkNorm(afk.current)))
-      afk.visited.push(afk.current);
-    if (afk.visited.some(name=>afkNorm(name)===afkNorm(target))) {
-      afkStop('Rotação repetida detectada; AFK interrompido.'); return;
+    const wrapped=index===sequence.length-1;
+    const target=sequence[wrapped ? 0 : index+1];
+    if (wrapped) {
+      // Nova volta: o historico antigo nao bloqueia o primeiro.
+      afk.visited=[];
+    } else {
+      if (!afk.visited.some(name=>afkNorm(name)===afkNorm(afk.current)))
+        afk.visited.push(afk.current);
+      if (afk.visited.some(name=>afkNorm(name)===afkNorm(target))) {
+        afkStop('Rotacao repetida na mesma volta; AFK interrompido.');
+        return;
+      }
     }
     afk.phase='switch'; afk.stage='menu'; afk.target=target;
     afk.since=Date.now(); afk.lastAction=0; afk.attempt=0;
@@ -5681,7 +5688,8 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     // para o primeiro personagem por causa do destaque padrao do jogo.
     const seq=afkSequence();
     const pos=seq.findIndex(name=>afkNorm(name)===afkNorm(afk.current));
-    if (pos<0 || afkNorm(seq[pos+1])!==afkNorm(afk.target)) {
+    const next=pos>=0 && seq.length>=2 ? seq[(pos+1)%seq.length] : null;
+    if (!next || afkNorm(next)!==afkNorm(afk.target)) {
       afkStop('Ordem mudou no meio da troca; AFK pausado.');return;
     }
     const cards=afkFindCards();
@@ -6287,7 +6295,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.62",
+    version: "6.2.63",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
