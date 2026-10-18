@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.61
+// // @version      6.2.62
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -5046,6 +5046,43 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     }
     return found.size===1 ? [...found][0] : null;
   };
+  // Identificar skill selecionada NA TELA DE TREINO nativa, sem clicar.
+  // Somente aceita as seis skills juntas e UMA selecao inequivoca.
+  const afkSelectedTrainingSkill = () => {
+    const panel=document.querySelector('[data-guide="training-standard-panel"]');
+    if (!panel?.isConnected || !botVisible(panel) || !botFindStartTrainingButton()) return null;
+    const valid=new Set(['SWORD','AXE','CLUB','FIST','DISTANCE','MAGIC']);
+    const inspected=new Set(), found=[];
+    for (const p of document.querySelectorAll('p')) {
+      if (!p.isConnected || !botVisible(p) || p.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
+      const group=p.parentElement?.parentElement;
+      if (!group?.isConnected || inspected.has(group)) continue;
+      inspected.add(group);
+      const cards=[...group.children].map(card=>({
+        card,label:botNormalize(card.querySelector('p')?.textContent||'')
+      }));
+      if (cards.length!==6 || new Set(cards.map(x=>x.label)).size!==6 ||
+          cards.some(x=>!valid.has(x.label) || !x.card.isConnected)) continue;
+      const flags='[aria-selected="true"],[aria-checked="true"],[aria-pressed="true"],[data-selected="true"],[data-state="selected"]';
+      const marked=cards.filter(x=>x.card.matches?.(flags));
+      if (marked.length>1) return null;
+      let selected=marked[0];
+      if (!selected) {
+        // React/Material UI: 5 cards com uma classe e 1 diferente.
+        // Comparacao RELATIVA; nunca fixar css-5uu3a9 ou similares.
+        const counts=new Map();
+        for (const x of cards) {
+          const key=String(x.card.className||'');
+          counts.set(key,(counts.get(key)||0)+1);
+        }
+        if (counts.size!==2 || ![...counts.values()].includes(5) ||
+            ![...counts.values()].includes(1)) continue;
+        selected=cards.find(x=>counts.get(String(x.card.className||''))===1);
+      }
+      if (selected) found.push(selected.label);
+    }
+    return found.length===1 ? found[0][0]+found[0].slice(1).toLowerCase() : null;
+  };
   async function afkBeginTraining(skillOverride = null) {
     // Nao clicar novamente em Training quando a tela ja esta aberta.
     if (botTreinando()) return true;
@@ -5109,10 +5146,14 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     const chosen=own?.skill && own.skill!=='auto' ? own.skill : null;
     const fromEquipment=profession==='knight' && !skillOverride && !chosen
       ? afkEquippedKnightSkill() : null;
+    // Se nao ha slot identificado, aceitar a skill REALMENTE marcada no jogo.
+    // Isto resolve Knight com Sword selecionada sem adivinhar pela mochila.
+    const fromScreen=profession==='knight' && !skillOverride && !chosen && !fromEquipment
+      ? afkSelectedTrainingSkill() : null;
     const desired=skillOverride || chosen ||
-      (profession==='knight' ? fromEquipment : autoSkill);
+      (profession==='knight' ? (fromEquipment || fromScreen) : autoSkill);
     if (!desired && profession==='knight') {
-      afkSay('Knight: slot equipado nao confirmado. Configure Sword/Axe/Club em AFK > personagem > Treino Knight.', 'warn');
+      afkSay('Knight: selecione Sword/Axe/Club na tela Training ou configure a skill no perfil AFK.', 'warn');
       return false;
     }
 
@@ -6246,7 +6287,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.61",
+    version: "6.2.62",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
