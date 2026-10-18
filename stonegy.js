@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.60
+// // @version      6.2.61
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -5018,6 +5018,34 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     afkSay(`Treino ativo. Trocando ${afk.current} → ${target}.`);
   };
   // Diferentemente da função Solo, esta rotina NÃO espera horas e NÃO finaliza treino.
+  // Detecta a classe da arma SOMENTE em um slot de equipamento identificado.
+  // Um aria-label na mochila nao comprova que o item esta equipado.
+  const afkEquippedKnightSkill = () => {
+    const found=new Set();
+    const equipped=/(?:equipment[-_\s]?(?:weapon|main[-_\s]?hand|slot)|equipped[-_\s]?(?:weapon|main[-_\s]?hand)|(?:main|right)[-_\s]?hand(?:[-_\s]?slot)?|weapon[-_\s]?(?:slot|equipped))/i;
+    const excluded=/(?:backpack|quick[-_\s]?sell|stash|depot|market|loot[-_\s]?(?:bag|window|panel))/i;
+    for (const holder of document.querySelectorAll('.stonegy-item-holder-content')) {
+      if (!holder.isConnected || holder.closest('#stonegy-tm-overlay,[hidden],[aria-hidden="true"]')) continue;
+      const icon=holder.querySelector('[role="img"][aria-label]');
+      const item=String(icon?.getAttribute('aria-label')||'').trim();
+      if (!item) continue;
+      let node=holder, marked=false, blocked=false;
+      for (let depth=0;node && depth<9;depth++,node=node.parentElement) {
+        const attrs=['data-guide','data-testid','data-slot','aria-label','id'];
+        const meta=attrs.map(k=>String(node.getAttribute?.(k)||''));
+        const classes=String(node.className||'').split(/\s+/).filter(c=>!/^css-/.test(c));
+        const description=[...meta,...classes].join(' ');
+        if (excluded.test(description)) blocked=true;
+        if (equipped.test(description)) marked=true;
+      }
+      if (blocked || !marked) continue;
+      const categories=['Sword','Axe','Club'].filter(kind=>
+        new RegExp('\\b'+kind+'\\b','i').test(item));
+      if (categories.length!==1) return null;
+      found.add(categories[0]);
+    }
+    return found.size===1 ? [...found][0] : null;
+  };
   async function afkBeginTraining(skillOverride = null) {
     // Nao clicar novamente em Training quando a tela ja esta aberta.
     if (botTreinando()) return true;
@@ -5077,8 +5105,16 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       sorcerer:'Magic', druid:'Magic'
     }[profession];
 
-    const desired=skillOverride ||
-      (own?.skill && own.skill!=='auto' ? own.skill : autoSkill);
+    // Preferencia manual prevalece; em AUTO, usa SOMENTE a arma equipada confirmada.
+    const chosen=own?.skill && own.skill!=='auto' ? own.skill : null;
+    const fromEquipment=profession==='knight' && !skillOverride && !chosen
+      ? afkEquippedKnightSkill() : null;
+    const desired=skillOverride || chosen ||
+      (profession==='knight' ? fromEquipment : autoSkill);
+    if (!desired && profession==='knight') {
+      afkSay('Knight: slot equipado nao confirmado. Configure Sword/Axe/Club em AFK > personagem > Treino Knight.', 'warn');
+      return false;
+    }
 
     if (!desired) {
       afkSay(`Defina uma skill de treino para ${afk.current}.`,'warn');
@@ -6000,6 +6036,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     if (heading) heading.textContent=afk.editing||'Selecione um personagem';
     const vocation=root.querySelector('[data-afk-vocation]');
     const known=afkProfiles.roster.find(x=>afkNorm(x.name)===afkNorm(afk.editing));
+    // Disponibilizar escolha manual do Knight; nao alterar skill de outras vocacoes.
+    const knightField=root.querySelector('[data-afk-knight-skill]');
+    if (knightField) knightField.hidden=String(known?.vocation||'').toLowerCase()!=='knight';
     if (vocation) vocation.textContent=known?.vocation?.toUpperCase()||'PERFIL';
     const hint=root.querySelector('[data-afk-editor-hint]');
     if (hint) hint.textContent=profile
@@ -6207,7 +6246,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.60",
+    version: "6.2.61",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
