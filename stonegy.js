@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.63
+// // @version      6.2.64
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -3261,9 +3261,13 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   <div id="body">
     <div class="tabs">
       <button class="tab active" data-view="dashboard">Dashboard</button>
-      <button class="tab" data-view="bot">Hunt</button>
+      <button class="tab" data-view="bot">HUNT</button>
       <button class="tab" data-view="bestiary">Bestiário</button>
-      <button class="tab" data-view="afk">AFK</button>
+    </div>
+    <div class="control-modes" data-control-modes hidden role="group" aria-label="Modo de controle">
+      <button type="button" class="control-mode" data-control-mode="solo" aria-pressed="true">Solo</button>
+      <button type="button" class="control-mode" data-control-mode="afk" aria-pressed="false">AFK</button>
+      <button type="button" class="control-mode" data-control-mode="party" aria-pressed="false">Party</button>
     </div>
     <section class="dash-view" data-dashboard data-selected="dealt">
       <div data-dashboard-character style="font-size:10px;color:#a6b1c5;padding:8px 12px 0">Todos os personagens</div>
@@ -3429,10 +3433,31 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     document.documentElement.appendChild(host);
     panelHost = host;
     try { window.__emerickPartyInit?.(shadow); } catch (e) { console.warn("[EmerickST Party]", e); }
+    const controlStyle = document.createElement("style");
+    controlStyle.textContent = `
+      .tabs:has([data-view="party"]){grid-template-columns:repeat(3,minmax(0,1fr))!important}
+      .tabs [data-view="party"]{display:none!important}
+      .control-modes[hidden]{display:none!important}
+      .control-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:8px 10px;background:rgba(8,11,20,.28);border-bottom:1px solid #22283a}
+      .control-mode{min-width:0;padding:7px 8px;border:1px solid #343b54;border-radius:8px;background:#171b2a;color:#aeb9d0;font:600 10px system-ui;cursor:pointer}
+      .control-mode.active{border-color:#746bb2;background:#2b2949;color:#e4deff}
+      .control-mode:disabled{opacity:.55;cursor:not-allowed}
+    `;
+    shadow.appendChild(controlStyle);
     afkBind(shadow);
 
     const panel = shadow.querySelector(".panel"), rows = shadow.querySelector("#rows");
-    let activeView = ["bot", "bestiary", "afk"].includes(overlayState.activeView) ? overlayState.activeView : "dashboard";
+    let activeView = overlayState.activeView === "afk" ? "bot"
+      : ["bot", "bestiary"].includes(overlayState.activeView) ? overlayState.activeView : "dashboard";
+    let controlMode = ["solo", "afk", "party"].includes(overlayState.controlMode)
+      ? overlayState.controlMode : overlayState.activeView === "afk" ? "afk" : "solo";
+    if (afk.enabled) controlMode = "afk";
+    else if (window.__emerickPartyGate?.enabled) controlMode = "party";
+    const controlModes = shadow.querySelector("[data-control-modes]");
+    const partyCompatTab = shadow.querySelector('.tabs [data-view="party"]');
+    const runningControlMode = () => afk.enabled ? "afk"
+      : window.__emerickPartyGate?.enabled ? "party"
+      : BOT_CONFIG.botAtivo ? "solo" : "";
     let selectedMetric = overlayState.activeView === "received" ? "received" : overlayState.combatMetric === "received" ? "received" : "dealt";
     let settingsOpen = false;
     let collapsed = overlayState.collapsed === true, dragging = false, dx = 0, dy = 0;
@@ -3489,9 +3514,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     };
     const saveOverlay = () => {
       if (miniMode) {
-        overlayState = { ...overlayState, activeView, combatMetric: selectedMetric, collapsed, fontScale, miniMode };
+        overlayState = { ...overlayState, activeView, controlMode, combatMetric: selectedMetric, collapsed, fontScale, miniMode };
       } else {
-        overlayState = { ...overlayState, activeView, combatMetric: selectedMetric, collapsed, fontScale, miniMode, left: parseFloat(panel.style.left), top: parseFloat(panel.style.top) };
+        overlayState = { ...overlayState, activeView, controlMode, combatMetric: selectedMetric, collapsed, fontScale, miniMode, left: parseFloat(panel.style.left), top: parseFloat(panel.style.top) };
       }
       persist();
     };
@@ -3578,7 +3603,20 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     };
     header.onpointermove = (e) => { if (dragging) { panel.style.right = "auto"; panel.style.left = `${Math.max(0, e.clientX - dx)}px`; panel.style.top = `${Math.max(0, e.clientY - dy)}px`; } };
     header.onpointerup = () => { dragging = false; fit(); saveOverlay(); };
-    shadow.querySelector(".tabs").onclick = (e) => { const tab = e.target.closest(".tab"); if (tab) { activeView = tab.dataset.view; settingsOpen = false; saveOverlay(); update(); } };
+    shadow.querySelector(".tabs").onclick = (e) => { const tab = e.target.closest(".tab"); if (tab && tab.dataset.view !== "party") { activeView = tab.dataset.view; settingsOpen = false; saveOverlay(); update(); } };
+    controlModes.addEventListener("click", (e) => {
+      const button = e.target.closest("[data-control-mode]");
+      if (!button || button.disabled) return;
+      const running = runningControlMode();
+      if (running && button.dataset.controlMode !== running) {
+        botToast("warn", "Pare o modo ativo antes de trocar.");
+        return;
+      }
+      controlMode = button.dataset.controlMode;
+      settingsOpen = false;
+      saveOverlay();
+      update();
+    });
     shadow.querySelector("[data-settings-trigger]").onclick = () => { settingsOpen = !settingsOpen; update(); };
     shadow.querySelector("[data-dashboard]").addEventListener("click", (event) => {
       const metric = event.target.closest("[data-metric]");
@@ -3664,7 +3702,21 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       }).join("");
     }
     function update() {
-      shadow.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === activeView));
+      shadow.querySelectorAll(".tabs .tab").forEach((tab) => {
+        const active = tab === partyCompatTab
+          ? activeView === "bot" && controlMode === "party"
+          : tab.dataset.view === activeView;
+        tab.classList.toggle("active", active);
+      });
+      const running = runningControlMode();
+      controlModes.hidden = settingsOpen || activeView !== "bot";
+      controlModes.querySelectorAll("[data-control-mode]").forEach((button) => {
+        const selected = button.dataset.controlMode === controlMode;
+        button.classList.toggle("active", selected);
+        button.setAttribute("aria-pressed", String(selected));
+        button.disabled = Boolean(running && button.dataset.controlMode !== running);
+        button.title = button.disabled ? "Pare o modo ativo antes de trocar." : "";
+      });
       const botView = shadow.querySelector("[data-bot-view]");
       const bestiaryView = shadow.querySelector("[data-bestiary-view]");
       const afkView = shadow.querySelector("[data-afk-view]");
@@ -3672,9 +3724,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       const settings = shadow.querySelector("[data-settings-view]");
       settings.hidden = !settingsOpen;
       dashboard.hidden = settingsOpen || activeView !== "dashboard";
-      botView.hidden = settingsOpen || activeView !== "bot";
+      botView.hidden = settingsOpen || activeView !== "bot" || controlMode !== "solo";
       bestiaryView.hidden = settingsOpen || activeView !== "bestiary";
-      afkView.hidden = settingsOpen || activeView !== "afk";
+      afkView.hidden = settingsOpen || activeView !== "bot" || controlMode !== "afk";
       shadow.querySelector("[data-settings-trigger]").classList.toggle("selected", settingsOpen);
       if (settingsOpen) return;
       if (activeView === "afk") { afkRender(shadow); return; }
@@ -6295,7 +6347,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.63",
+    version: "6.2.64",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
