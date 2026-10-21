@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.65
+// // @version      6.2.66
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -898,19 +898,42 @@
     return raiz;
   };
 
+  const botFindHuntCardSquare = (nameNode) => {
+    let container = nameNode?.parentElement || null;
+    for (let depth = 0; container && depth < 5; depth++, container = container.parentElement) {
+      if (container.closest("#stonegy-tm-overlay")) return null;
+      const label = botNormalize(container.textContent || "");
+      const hasHuntDetails = /\bLEVEL\s+\d+\b/.test(label) && /\bMIN\.?\s*\d+\b/.test(label);
+      if (hasHuntDetails) {
+        const squares = [...container.querySelectorAll('[style*="talkcursor"]')].filter((el) => {
+          if (el.closest("#stonegy-tm-overlay") || !botVisible(el)) return false;
+          try { return getComputedStyle(el).cursor.includes("pointer"); } catch(_) { return false; }
+        });
+        if (squares.length === 1) return squares[0];
+      }
+      if (container.matches?.(SELETOR_MODAL_HUNTS)) break;
+    }
+    return null;
+  };
+
   const botFindHuntResult = (name) => {
     const raiz = document.querySelector(SELETOR_MODAL_HUNTS) ?? document;
-    const alvo = String(name || "").toLowerCase();
+    const alvo = String(name || "").trim().toLowerCase();
     if (!alvo) return null;
     const ps = [...raiz.querySelectorAll("p")];
-    let exact = null, partial = null;
+    let exact = null, exactSquare = null, partial = null, partialSquare = null;
     for (const p of ps) {
       if (p.closest("#stonegy-tm-overlay")) continue;
       const t = (p.textContent || "").trim().toLowerCase();
-      if (t === alvo) { exact = p; break; }
-      if (!partial && t.includes(alvo)) partial = p;
+      if (t === alvo) {
+        if (!exact) exact = p;
+        if (!exactSquare) exactSquare = botFindHuntCardSquare(p);
+      } else if (t.includes(alvo)) {
+        if (!partial) partial = p;
+        if (!partialSquare) partialSquare = botFindHuntCardSquare(p);
+      }
     }
-    return exact || partial;
+    return exactSquare || exact || partialSquare || partial;
   };
 
   // ==================== STAMINA ====================
