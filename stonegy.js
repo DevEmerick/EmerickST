@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.66
+// // @version      6.2.67
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -898,39 +898,49 @@
     return raiz;
   };
 
-  const botFindHuntCardSquare = (nameNode) => {
-    let container = nameNode?.parentElement || null;
-    for (let depth = 0; container && depth < 5; depth++, container = container.parentElement) {
-      if (container.closest("#stonegy-tm-overlay")) return null;
-      const label = botNormalize(container.textContent || "");
+  const botFindHuntCardSquare = (nameNode, huntName) => {
+    const expected = botNormalize(huntName);
+    if (!nameNode || !expected) return null;
+    let card = nameNode.parentElement || null;
+    while (card && !card.matches?.(SELETOR_MODAL_HUNTS)) {
+      const label = botNormalize(card.textContent || "");
       const hasHuntDetails = /\bLEVEL\s+\d+\b/.test(label) && /\bMIN\.?\s*\d+\b/.test(label);
       if (hasHuntDetails) {
-        const squares = [...container.querySelectorAll('[style*="talkcursor"]')].filter((el) => {
+        const hasRequestedTitle = [...card.querySelectorAll("p")]
+          .some((p) => botNormalize(p.textContent || "") === expected);
+        if (!hasRequestedTitle) return null;
+        const squares = [...card.querySelectorAll('[style*="talkcursor"]')].filter((el) => {
           if (el.closest("#stonegy-tm-overlay") || !botVisible(el)) return false;
           try { return getComputedStyle(el).cursor.includes("pointer"); } catch(_) { return false; }
         });
-        if (squares.length === 1) return squares[0];
+        return squares.length === 1 ? squares[0] : null;
       }
-      if (container.matches?.(SELETOR_MODAL_HUNTS)) break;
+      card = card.parentElement;
     }
     return null;
   };
 
+  const botIsDailyBoostedHuntLabel = (p) => {
+    const siblingLabels = [...(p?.parentElement?.querySelectorAll("p") || [])]
+      .map((el) => botNormalize(el.textContent || ""));
+    return siblingLabels.includes("DAILY BOOSTED HUNT");
+  };
+
   const botFindHuntResult = (name) => {
     const raiz = document.querySelector(SELETOR_MODAL_HUNTS) ?? document;
-    const alvo = String(name || "").trim().toLowerCase();
+    const alvo = botNormalize(name);
     if (!alvo) return null;
     const ps = [...raiz.querySelectorAll("p")];
     let exact = null, exactSquare = null, partial = null, partialSquare = null;
     for (const p of ps) {
-      if (p.closest("#stonegy-tm-overlay")) continue;
-      const t = (p.textContent || "").trim().toLowerCase();
+      if (p.closest("#stonegy-tm-overlay") || botIsDailyBoostedHuntLabel(p)) continue;
+      const t = botNormalize(p.textContent || "");
       if (t === alvo) {
         if (!exact) exact = p;
-        if (!exactSquare) exactSquare = botFindHuntCardSquare(p);
+        if (!exactSquare) exactSquare = botFindHuntCardSquare(p, name);
       } else if (t.includes(alvo)) {
         if (!partial) partial = p;
-        if (!partialSquare) partialSquare = botFindHuntCardSquare(p);
+        if (!partialSquare) partialSquare = botFindHuntCardSquare(p, name);
       }
     }
     return exactSquare || exact || partialSquare || partial;
