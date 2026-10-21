@@ -1,4 +1,4 @@
-// EmerickST Party v6.2.29 — lider/membro local, confirmacao e posicao automaticas.
+// EmerickST Party v6.2.68 — lider/membro local, confirmacao e posicao automaticas.
 // Mundo MAIN. Nao executa hunts, nao altera WebSocket nem faz movimentos.
 (() => {
   if (window.__emerickPartyInit) return;
@@ -353,9 +353,7 @@
       positioning.hadGame=true;
       // Knight lider nao abre posicionamento; usa a posicao fixa do jogo.
       if (role.value === 'leader' && getVocation(name.value) === 'knight') {
-        setPositionMessage(nativeKnightLeader()
-          ? 'Knight lider: posicao fixa; Lure apos prontidao.'
-          : 'Knight lider: aguardando confirmacao do perfil nativo.');
+        setPositionMessage('Knight lider: posicao fixa; Lure apos prontidao.');
         return;
       }
       const hunt = huntName();
@@ -537,7 +535,6 @@
       const choice=getVocation(name.value);
       return VOCATIONS.has(choice) && nativeLeaderVocation() === choice;
     };
-    const nativeKnightLeader = () => getVocation(name.value) === 'knight' && leaderProfileConfirmed();
     const setGate = () => {
       const game=state.enabled && partyInHunt();
       const waitingReady=Boolean(game && nativeDialog());
@@ -547,8 +544,8 @@
       const saved=leader && currentHunt ? getPosition(currentHunt) : null;
       // Knight: nao se move. Lider de outra vocacao: aceita posicao atual;
       // se ha uma escolha salva, aguarda reaplica-la nesta entrada.
-      const leaderPending=leader && (!leaderProfileConfirmed() ||
-        (choice !== 'knight' && Boolean(saved) &&
+      const leaderPending=leader && choice !== 'knight' &&
+        (!leaderProfileConfirmed() || (Boolean(saved) &&
           (!positioning.applied || positioning.hunt !== positionId(currentHunt))));
       window.__emerickPartyGate = {
         enabled:state.enabled,
@@ -843,7 +840,7 @@
       const isKnight=isLeader && getVocation(name.value)==='knight';
       const profileOK=isLeader && leaderProfileConfirmed();
       const positionText=!currentHunt ? 'aguardando hunt'
-        : isKnight ? (profileOK ? 'fixa · Knight' : 'aguardando perfil Knight')
+        : isKnight ? 'fixa · Knight'
         : isLeader && !profileOK ? 'aguardando perfil do lider'
         : saved ? `${saved.x},${saved.y} · salva` : isLeader ? 'posicao atual' : 'não configurada';
       text('[data-party-position]',positionText);
@@ -865,10 +862,25 @@
     });
     partyHuntInput.addEventListener('keydown',e=>{if(e.key==='Enter')partyHuntInput.blur();});
     partyLure.addEventListener('change',()=>{
-      if (state.enabled) {partyLure.value=preferredLure();return;}
+      if (role.value!=='leader' || (state.enabled && closing.active)) {
+        partyLure.value=preferredLure();return;
+      }
+      const choice=partyLure.value==='off'?'off':'max';
       const values=readMap(LURE_MAP_KEY);
-      values[norm(partyHunt)]=partyLure.value==='off'?'off':'max';
-      writeMap(LURE_MAP_KEY,values);
+      values[norm(partyHunt)]=choice;
+      if (!writeMap(LURE_MAP_KEY,values)) {
+        partyLure.value=preferredLure();
+        state.error='Nao foi possivel salvar o Lure.';render();return;
+      }
+      if (state.enabled) {
+        const bot=window.__stonegy;
+        if (bot?.config) {
+          bot.config.lureModo=choice;
+          bot.saveConfig?.();
+          bot.log?.('info','Party: Lure '+choice.toUpperCase()+' solicitado.');
+        }
+      }
+      state.error='';render();
     });
     name.addEventListener('change',()=>{
       vocation.value=getVocation(name.value);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stonegy - Analisador de Combate",
-  "version": "6.2.67",
+  "version": "6.2.68",
   "description": "Analisador de combate, DPS, boxes e automações para Stonegy Online.",
   "content_scripts": [
     {

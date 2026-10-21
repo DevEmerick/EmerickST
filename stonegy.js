@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.67
+// // @version      6.2.68
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -770,7 +770,7 @@
   window.__emerickHuntPriority = emHuntPriority;
   // Uma sequencia por entrada na Hunt; nunca usar um segundo motor paralelo.
   const emPartyAfterHunt = {
-    seen:false, done:false, running:false, nextTry:0, failures:0
+    seen:false, done:false, running:false, nextTry:0, failures:0, lureMode:null
   };
   let botTrainingAsyncRunning = false;
   let botTrainingStartedAt = 0;
@@ -1334,6 +1334,13 @@
       emHuntPriority.active=true;
       botLog('flow','📍 Party: aguardando posicionamento antes do Lure');
     }
+    if (!emPartyAfterHunt.running && emPartyAfterHunt.lureMode !== BOT_CONFIG.lureModo) {
+      emPartyAfterHunt.done=false;
+      emPartyAfterHunt.nextTry=0;
+      emPartyAfterHunt.failures=0;
+      emHuntPriority.active=true;
+      emHuntPriority.stage='lure-pending';
+    }
     if (emPartyAfterHunt.done || emPartyAfterHunt.running) return;
     // Enquanto nao se posicionar, NAO entrar no Lure nem no Bestiary.
     if (gate.positionPending || gate.readyPending) {
@@ -1341,9 +1348,12 @@
       emHuntPriority.stage='position';
       return;
     }
-    if (!BOT_CONFIG.botAtivo || botHuntAsyncRunning || botBusy || botGetFlow() ||
+    if (!BOT_CONFIG.botAtivo || gate.closing || botHuntAsyncRunning ||
+        botTrainingAsyncRunning || botBusy || botGetFlow() || window.__emerickBestiaryBusy ||
         botConnLostActive || botInactivityActive || Date.now()<emPartyAfterHunt.nextTry)
       return;
+    const requestedLure=BOT_CONFIG.lureModo;
+    emPartyAfterHunt.lureMode=requestedLure;
     emPartyAfterHunt.running=true;
     emHuntPriority.active=true;
     emHuntPriority.stage='lure';
@@ -1351,10 +1361,13 @@
     botExecutarAjustarLure().then(ok => {
       if (!botInHunt() || !botIsPartyLeader()) return;
       if (ok) {
-        emPartyAfterHunt.done=true;
-        emHuntPriority.stage='done';
-        emHuntPriority.active=false;
-        botLog('success','✓ Party: posição e Lure concluídos; Bestiary liberado');
+        emPartyAfterHunt.done=requestedLure===BOT_CONFIG.lureModo;
+        emHuntPriority.stage=emPartyAfterHunt.done?'done':'lure-pending';
+        emHuntPriority.active=!emPartyAfterHunt.done;
+        if (emPartyAfterHunt.done)
+          botLog('success','✓ Party: posição e Lure concluídos; Bestiary liberado');
+        else
+          botLog('info','Party: aguardando aplicar a nova escolha de Lure.');
       } else {
         emPartyAfterHunt.failures++;
         emPartyAfterHunt.nextTry=Date.now()+12000;
@@ -6386,7 +6399,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.65",
+    version: "6.2.68",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
