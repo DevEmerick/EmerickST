@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.64
+// // @version      6.2.65
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -2544,7 +2544,7 @@ header button:active{transform:translateY(0)}
 .best{color:#ffe49b;font-size:10px;display:flex;justify-content:space-between;padding:2px 0}
 .chart{padding:4px 10px 8px}.chart label{display:flex;justify-content:space-between;color:#8b95a1;font-size:10px;margin-bottom:2px}
 .chart canvas{width:100%;height:56px}
-.bot-view{padding:0 0 10px;overflow-y:auto;max-height:calc(100dvh - 200px)}
+.bot-view,.loot-view{padding:0 0 10px;overflow-y:auto;max-height:calc(100dvh - 200px)}
 .status-bar{display:flex;align-items:center;gap:7px;padding:8px 12px;background:#141820;border-bottom:1px solid #ffffff0f;font-size:10px;min-width:0}
 .status-dot{width:7px;height:7px;border-radius:50%;background:#64748b;flex-shrink:0;transition:all .3s ease}
 .status-dot[data-state=active]{background:#22c55e;box-shadow:0 0 6px #22c55e}
@@ -2888,7 +2888,7 @@ header button:hover{background:#292b49;border-color:#746fb4;color:#f2efff}
 .best{color:#c7bfff}
 .chart{padding:9px 12px 12px;border-top:1px solid #24283b;background:rgba(9,12,22,.36)}
 .chart label{color:#929fba;font-size:9px;margin-bottom:5px}
-.bot-view{scrollbar-color:#3b4260 transparent;scrollbar-width:thin}
+.bot-view,.loot-view{scrollbar-color:#3b4260 transparent;scrollbar-width:thin}
 .status-bar{padding:10px 12px;background:rgba(17,22,34,.94);border-bottom:1px solid var(--em-line-soft)}
 .status-dot{width:8px;height:8px;box-shadow:0 0 0 3px rgba(255,255,255,.035)}
 .status-dot[data-state=active]{background:#6bdbb5;box-shadow:0 0 0 3px rgba(107,219,181,.13),0 0 9px rgba(107,219,181,.4)}
@@ -3262,6 +3262,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     <div class="tabs">
       <button class="tab active" data-view="dashboard">Dashboard</button>
       <button class="tab" data-view="bot">HUNT</button>
+      <button class="tab" data-view="loot">Loot</button>
       <button class="tab" data-view="bestiary">Bestiário</button>
     </div>
     <div class="control-modes" data-control-modes hidden role="group" aria-label="Modo de controle">
@@ -3300,7 +3301,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     </section>
     <section class="settings-view" data-settings-view hidden>
       <div class="settings-card"><strong>Configurações do painel</strong><div class="settings-buttons"><button id="font-dec" type="button">A− Fonte</button><button id="font-inc" type="button">A+ Fonte</button></div><p>A posição, a escala e o modo bolinha continuam sendo salvos como antes.</p></div>
-      <div class="settings-card"><strong>Estatísticas e automação</strong><p>As métricas de combate continuam no Dashboard. Os controles do bot permanecem na aba Hunt e o Bestiário continua independente.</p></div>
+      <div class="settings-card"><strong>Estatísticas e automação</strong><p>As métricas de combate continuam no Dashboard. Os controles do bot permanecem na aba Hunt, as proteções ficam na aba Loot e o Bestiário continua independente.</p></div>
     </section>
     <section class="bestiary-view" data-bestiary-view hidden>
       <div class="bestiary-toolbar"><strong>Bestiário</strong><button type="button" class="bestiary-refresh" data-bestiary-refresh title="Conferir progresso real">↻</button><button type="button" class="bestiary-toggle" data-bestiary-toggle aria-pressed="false">▶ Iniciar</button></div>
@@ -3385,6 +3386,23 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       <div class="toggle-row">
         <button class="pill" data-bot="toggle" data-on="true" title="Bot ativo">BOT</button>
       </div>
+
+      <details class="console">
+        <summary>CONSOLE</summary>
+        <div class="log-controls">
+          <button class="log-filter active" data-log-filter="all">Todos</button>
+          <button class="log-filter" data-log-filter="flow">● Fluxo</button>
+          <button class="log-filter" data-log-filter="refil">◆ Refil</button>
+          <button class="log-filter" data-log-filter="info">Info</button>
+          <button class="log-filter" data-log-filter="success">OK</button>
+          <button class="log-filter" data-log-filter="warn">Aviso</button>
+          <button class="log-filter" data-log-filter="error">Erro</button>
+          <button class="log-filter clear" data-log-clear>Limpar</button>
+        </div>
+        <div class="log-rows" data-log-rows><div class="log-empty">Nenhum registro ainda.</div></div>
+      </details>
+    </div>
+    <section class="loot-view" data-loot-view hidden>
       <div class="card">
         <div class="card-head">
           <span>ITENS PROTEGIDOS <span class="bot-protected-count" data-protected-count></span></span>
@@ -3413,21 +3431,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
           <span><b>Pular proteção</b> (vender direto sem sincronizar)</span>
         </label>
       </div>
-      <details class="console">
-        <summary>CONSOLE</summary>
-        <div class="log-controls">
-          <button class="log-filter active" data-log-filter="all">Todos</button>
-          <button class="log-filter" data-log-filter="flow">● Fluxo</button>
-          <button class="log-filter" data-log-filter="refil">◆ Refil</button>
-          <button class="log-filter" data-log-filter="info">Info</button>
-          <button class="log-filter" data-log-filter="success">OK</button>
-          <button class="log-filter" data-log-filter="warn">Aviso</button>
-          <button class="log-filter" data-log-filter="error">Erro</button>
-          <button class="log-filter clear" data-log-clear>Limpar</button>
-        </div>
-        <div class="log-rows" data-log-rows><div class="log-empty">Nenhum registro ainda.</div></div>
-      </details>
-    </div>
+    </section>
   </div>
 </section>`;
     document.documentElement.appendChild(host);
@@ -3435,7 +3439,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     try { window.__emerickPartyInit?.(shadow); } catch (e) { console.warn("[EmerickST Party]", e); }
     const controlStyle = document.createElement("style");
     controlStyle.textContent = `
-      .tabs:has([data-view="party"]){grid-template-columns:repeat(3,minmax(0,1fr))!important}
+      .tabs:has([data-view="party"]){grid-template-columns:repeat(4,minmax(0,1fr))!important}
       .tabs [data-view="party"]{display:none!important}
       .control-modes[hidden]{display:none!important}
       .control-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:8px 10px;background:rgba(8,11,20,.28);border-bottom:1px solid #22283a}
@@ -3448,7 +3452,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
     const panel = shadow.querySelector(".panel"), rows = shadow.querySelector("#rows");
     let activeView = overlayState.activeView === "afk" ? "bot"
-      : ["bot", "bestiary"].includes(overlayState.activeView) ? overlayState.activeView : "dashboard";
+      : ["bot", "loot", "bestiary"].includes(overlayState.activeView) ? overlayState.activeView : "dashboard";
     let controlMode = ["solo", "afk", "party"].includes(overlayState.controlMode)
       ? overlayState.controlMode : overlayState.activeView === "afk" ? "afk" : "solo";
     if (afk.enabled) controlMode = "afk";
@@ -3718,6 +3722,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         button.title = button.disabled ? "Pare o modo ativo antes de trocar." : "";
       });
       const botView = shadow.querySelector("[data-bot-view]");
+      const lootView = shadow.querySelector("[data-loot-view]");
       const bestiaryView = shadow.querySelector("[data-bestiary-view]");
       const afkView = shadow.querySelector("[data-afk-view]");
       const dashboard = shadow.querySelector("[data-dashboard]");
@@ -3725,13 +3730,14 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
       settings.hidden = !settingsOpen;
       dashboard.hidden = settingsOpen || activeView !== "dashboard";
       botView.hidden = settingsOpen || activeView !== "bot" || controlMode !== "solo";
+      lootView.hidden = settingsOpen || activeView !== "loot";
       bestiaryView.hidden = settingsOpen || activeView !== "bestiary";
       afkView.hidden = settingsOpen || activeView !== "bot" || controlMode !== "afk";
       shadow.querySelector("[data-settings-trigger]").classList.toggle("selected", settingsOpen);
       if (settingsOpen) return;
       if (activeView === "afk") { afkRender(shadow); return; }
       if (activeView === "bestiary") { emRenderBestiary(); return; }
-      if (activeView === "bot") { botUpdatePanel(); return; }
+      if (activeView === "bot" || activeView === "loot") { botUpdatePanel(); return; }
 
       // Totais, DPS, nomes, origens e participacao sao sempre coletivos.
       // SOMENTE o maior golpe causado/recebido pertence ao personagem desta aba.
@@ -6347,7 +6353,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.64",
+    version: "6.2.65",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,
