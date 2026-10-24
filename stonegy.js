@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EmerickST
 // @namespace    stonegy-combate
-// // @version      6.2.68
+// // @version      6.2.69
 // @description  EmerickST - combate, automacoes e bestiario para Stonegy Online.
 // @match        https://stonegy-online.com/*
 // @match        https://*.stonegy-online.com/*
@@ -661,6 +661,8 @@
 
   const BOT_CONFIG_KEY = "stonegy_config_menu";
   const BOT_FLOW_KEY = "stonegy_fluxo_automatico";
+  const BOT_LURE_MODES = ['off','1-2','2-3','3-4','4-5','5-6','6-7','max'];
+  const botNormalizeLure = value => BOT_LURE_MODES.includes(String(value)) ? String(value) : 'max';
   const BOT_DEFAULTS = { configVersion: 51, botAtivo: false, antiInatividadeAtivo: true, autoRecovery: true, autoResume: true, autoReload: true, unprotectExtras: true, showInventoryMarkers: true, skipProtection: false, lureModo: "max", huntName: HUNT_NAME, protectedItems: [], minStaminaHours: 5, trainingHours: 10 };
   const BOT_FLOW_TTL = 15 * 60 * 1000;
   const BOT_PAGE_COOLDOWN_MS = 1400;
@@ -709,11 +711,7 @@
                          typeof saved.huntName === "string")
         ? saved.huntName.trim()
         : HUNT_NAME;
-      const lureRaw = saved.lureModo;
-      let lureParsed = "max";
-      if (lureRaw === "off") lureParsed = "off";
-      else if (lureRaw === "max") lureParsed = "max";
-      else if (Number.isInteger(Number(lureRaw)) && Number(lureRaw) > 0) lureParsed = "max";
+      const lureParsed = botNormalizeLure(saved.lureModo);
       const minStaminaRaw = Number(saved.minStaminaHours);
       const minStaminaHours = Number.isInteger(minStaminaRaw) && minStaminaRaw >= 0 && minStaminaRaw <= 12 ? minStaminaRaw : 5;
       const trainingRaw = Number(saved.trainingHours);
@@ -1109,25 +1107,68 @@
     // Nao usa outro numero como fallback, evitando clicar em HP ou inventario.
     return null;
   };
-  const botFindLureOptions = () => {
-    return [...document.querySelectorAll("h5")]
-      .filter(h => /^lure\s+\d+\s*-\s*\d+$/i.test((h.textContent || "").trim()))
-      .map(label => {
-        // O ancestral com cursor clicavel e o cartao real; a arvore varia entre hunts.
-        const card = botFindClickableAncestor(label) || label.parentElement;
-        if (!card || !botVisible(card)) return null;
-        // O titulo e "Lure N - M". Ler o primeiro h5 retornava NaN (virava zero).
-        const faixa = /^lure\s+(\d+)\s*-\s*(\d+)$/i.exec((label.textContent || "").trim());
-        const num = faixa ? Number(faixa[2]) : 0;
-        const selecionado = [...card.querySelectorAll("p")].some(p => (p.textContent || "").trim().toLowerCase() === "selecionado");
-        return { el: card, card, num: Number.isFinite(num) ? num : 0, texto: label.textContent.trim(), selecionado };
-      })
-      .filter(Boolean);
+  const botFindLurePanel = () => {
+    const panels = new Set();
+    for (const heading of document.querySelectorAll('h5')) {
+      if (!botVisible(heading) || heading.closest('#stonegy-tm-overlay') ||
+          botNormalize(heading.textContent) !== 'LURE') continue;
+      let panel = heading.parentElement;
+      for (let depth=0; panel && depth<8; depth++, panel=panel.parentElement) {
+        const texts = [...panel.querySelectorAll('p')];
+        const titles = [...panel.querySelectorAll('h5')];
+        if (texts.some(p => botNormalize(p.textContent) === 'SELECIONE A QUANTIDADE DE CRIATURAS') &&
+            titles.some(h => botVisible(h) && botNormalize(h.textContent) === 'CONCLUIR') &&
+            titles.some(h => /^LURE\s+\d+\s*-\s*\d+$/.test(botNormalize(h.textContent)))) {
+          panels.add(panel); break;
+        }
+      }
+    }
+    return panels.size === 1 ? [...panels][0] : null;
   };
-  const botPickLureOption = (_target) => {
-    const options = botFindLureOptions();
-    if (!options.length) return null;
-    return options.reduce((a, b) => (b.num > a.num ? b : a), options[0]);
+  const botFindLureOptions = () => {
+    const panel = botFindLurePanel();
+    if (!panel) return [];
+    const options = [];
+    for (const label of panel.querySelectorAll('h5')) {
+      const range = /^LURE\s+(\d+)\s*-\s*(\d+)$/.exec(botNormalize(label.textContent));
+      if (!range || !botVisible(label)) continue;
+      const min = Number(range[1]), num = Number(range[2]);
+      let card = label.parentElement;
+      while (card && card !== panel) {
+        const headings = [...card.querySelectorAll('h5')];
+        const ranges = headings.filter(h => /^LURE\s+\d+\s*-\s*\d+$/.test(botNormalize(h.textContent)));
+        const badge = headings.some(h => (h.textContent || '').trim() === String(num));
+        const description = [...card.querySelectorAll('p')].some(p =>
+          botNormalize(p.textContent) === `ATRAI DE ${min} ATE ${num} CRIATURAS`);
+        if (ranges.length === 1 && badge && description) {
+          if (botVisible(card) && !card.closest('[aria-disabled="true"],[disabled]')) {
+            const selecionado = [...card.querySelectorAll('p')].some(p =>
+              botNormalize(p.textContent) === 'SELECIONADO');
+            options.push({el:card, card, min, num, mode:`${min}-${num}`,
+              texto:label.textContent.trim(), selecionado});
+          }
+          break;
+        }
+        if (ranges.length > 1) break;
+        card = card.parentElement;
+      }
+    }
+    return options;
+  };
+  const botPickLureOption = (target, options=botFindLureOptions()) => {
+    if (!options.length || target === 'off') return null;
+    if (target === 'max') return options.reduce((a,b) => b.num>a.num ? b : a);
+    const matches = options.filter(option => option.mode === target);
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const botFindLureConfirm = () => {
+    const panel = botFindLurePanel();
+    if (!panel) return null;
+    const headings = [...panel.querySelectorAll('h5')].filter(h =>
+      botVisible(h) && botNormalize(h.textContent) === 'CONCLUIR');
+    if (headings.length !== 1) return null;
+    const card = headings[0].closest('.highlight-animation');
+    return card && panel.contains(card) ? card : headings[0];
   };
   const botLureOpen = () => botFindLureOptions().length > 0;
 
@@ -1151,24 +1192,23 @@
 
   // ==================== FLUXO ASYNC DE HUNT + LURE ====================
   async function botExecutarAjustarLure() {
-    if (BOT_CONFIG.lureModo === 'off') {
+    const target = botNormalizeLure(BOT_CONFIG.lureModo);
+    if (target === 'off') {
       emHuntPriority.lastLure = 'OFF';
       return true;
     }
-    // Espera o jogo estabilizar; ate tres tentativas espaçadas.
-    // Lure nunca concorre com o posicionamento neste navegador.
     emHuntPriority.active = true;
     emHuntPriority.stage = 'lure';
     try {
       await botJitter(1100, 1700);
       let opcoes = botFindLureOptions();
       if (!opcoes.length) {
-        for (let attempt=0;attempt<3;attempt++) {
-          const botaoQtd = botFindLureTrigger();
-          if (botaoQtd && botClick(botaoQtd)) {
+        for (let attempt=0; attempt<3; attempt++) {
+          const trigger = botFindLureTrigger();
+          if (trigger && botClick(trigger)) {
             botLog('info', '🎯 Abrindo Lure');
             opcoes = await botEsperarAte(() => {
-              const found=botFindLureOptions();return found.length?found:null;
+              const found=botFindLureOptions(); return found.length ? found : null;
             }, 2700) || [];
             if (opcoes.length) break;
           }
@@ -1176,33 +1216,41 @@
         }
       }
       if (!opcoes.length) {
-        emHuntPriority.lastLure = 'Não encontrado';
-        botLog('error', '✗ Lure não encontrado; não selecionei outro controle');
+        emHuntPriority.lastLure = 'Nao encontrado';
+        botLog('error', 'Lure: janela ou faixas nao reconhecidas.');
         return false;
       }
-      // Usar a maior faixa, como no motor Solo.
-      const escolha = opcoes.reduce((a,b) => b.num>a.num?b:a);
-      if (!escolha.selecionado) {
+      const escolha = botPickLureOption(target, opcoes);
+      if (!escolha) {
+        botLog('warn', `Lure ${target} indisponivel; mantendo a selecao atual do jogo.`);
+      } else if (!escolha.selecionado) {
         await botJitter(450, 850);
         if (!botClick(escolha.card)) {
-          botLog('error', '✗ Clique de Lure falhou');return false;
+          botLog('error', 'Clique de Lure falhou.'); return false;
         }
-        botLog('info', '🎯 ' + escolha.texto);
+        const selected = await botEsperarAte(() => botFindLureOptions().some(option =>
+          option.mode === escolha.mode && option.selecionado), 3500);
+        if (!selected) {
+          botLog('error', 'A interface nao confirmou a faixa de Lure selecionada.');
+          return false;
+        }
         await botJitter(600, 1000);
       }
-      const concluir = await botEsperarAte(() =>
-        botAcharH5(TEXTO_CONCLUIR_LURE), 3500);
+      const concluir = await botEsperarAte(botFindLureConfirm, 3500);
       if (!concluir || !botClick(concluir)) {
-        emHuntPriority.lastLure = 'Concluir não encontrado';
-        botLog('error', '✗ Concluir Lure não encontrado');return false;
+        emHuntPriority.lastLure = 'Concluir nao encontrado';
+        botLog('error', 'Nao foi possivel concluir o Lure.'); return false;
+      }
+      if (!await botEsperarAte(() => !botFindLurePanel(), 3500)) {
+        botLog('error', 'A janela de Lure permaneceu aberta apos Concluir.');
+        return false;
       }
       await botJitter(650, 1100);
-      emHuntPriority.lastLure = escolha.texto;
-      botLog('success', '✓ Lure ' + escolha.texto + ' concluído');
+      emHuntPriority.lastLure = escolha ? escolha.texto : `Indisponivel: ${target}`;
+      if (escolha) botLog('success', '✓ '+escolha.texto+' concluido');
+      // Faixa ausente: etapa encerrada sem mudar a selecao nem bloquear Bestiary.
       return true;
     } finally {
-      // O ciclo de hunt pode refazer a tentativa de lure.
-      // Manter a prioridade ate o fim da sequencia completa.
       emHuntPriority.active=Boolean(botHuntAsyncRunning);
       emHuntPriority.stage=botHuntAsyncRunning?'lure':'ready';
     }
@@ -1365,7 +1413,7 @@
         emHuntPriority.stage=emPartyAfterHunt.done?'done':'lure-pending';
         emHuntPriority.active=!emPartyAfterHunt.done;
         if (emPartyAfterHunt.done)
-          botLog('success','✓ Party: posição e Lure concluídos; Bestiary liberado');
+          botLog('success','✓ Party: etapa de Lure encerrada; Bestiary liberado');
         else
           botLog('info','Party: aguardando aplicar a nova escolha de Lure.');
       } else {
@@ -3415,8 +3463,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         <label class="field"><span class="field-label">HUNT ALVO</span><input data-hunt type="text" placeholder="Hunt ou criatura" spellcheck="false" autocomplete="off" /></label>
         <label class="field"><span class="field-label">LURE</span>
           <select data-lure>
-            <option value="max">MAX</option>
-            <option value="off">OFF</option>
+            ${BOT_LURE_MODES.map(mode => `<option value="${mode}">${mode.toUpperCase().replace('-', '–')}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -4243,9 +4290,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     };
     lure.onchange = (e) => {
       const raw = e.target.value;
-      BOT_CONFIG.lureModo = (raw === "off") ? "off" : "max";
+      BOT_CONFIG.lureModo = botNormalizeLure(raw);
       botSaveConfig(); botUpdatePanel();
-      botLog("info", `🎯 Lure: ${BOT_CONFIG.lureModo === "off" ? "OFF" : "MAX"}`);
+      botLog("info", `🎯 Lure: ${BOT_CONFIG.lureModo.toUpperCase()} salvo para o proximo ajuste.`);
     };
     shadow.querySelector("[data-clear]").onclick = () => {
       botClearFlow("manual");
@@ -4627,9 +4674,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
   const afkHunts = p => {
     if (!p) return [];
     if (!Array.isArray(p.hunts) || !p.hunts.length) {
-      p.hunts=[{minLevel:1,hunt:String(p.hunt||''),lure:p.lure==='off'?'off':'max'}];
+      p.hunts=[{minLevel:1,hunt:String(p.hunt||''),lure:botNormalizeLure(p.lure)}];
       if (p.secondEnabled && Number.isSafeInteger(Number(p.threshold)) && Number(p.threshold)>=2)
-        p.hunts.push({minLevel:Number(p.threshold),hunt:String(p.hunt2||''),lure:p.lure2==='off'?'off':'max'});
+        p.hunts.push({minLevel:Number(p.threshold),hunt:String(p.hunt2||''),lure:botNormalizeLure(p.lure2)});
     }
     return p.hunts;
   };
@@ -4701,7 +4748,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
     const index=rows.length===1 ? 0 : level===null ? -1
       : Math.max(0,rows.findLastIndex(row=>level>=Number(row.minLevel)));
     if (index<0) return null;
-    return {hunt:String(rows[index].hunt||'').trim(),lure:rows[index].lure==='off'?'off':'max',
+    return {hunt:String(rows[index].hunt||'').trim(),lure:botNormalizeLure(rows[index].lure),
       minLevel:Number(rows[index].minLevel),index,level};
   };
   // Requer duas leituras seguidas para reconhecer uma promocao de Hunt.
@@ -6032,7 +6079,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         }
         control.setCustomValidity('');rows[index].minLevel=level;
       } else if (field==='hunt') rows[index].hunt=raw.trim();
-      else if (field==='lure') rows[index].lure=raw==='off'?'off':'max';
+      else if (field==='lure') rows[index].lure=botNormalizeLure(raw);
       else return;
       p.hunt=rows[0].hunt;p.lure=rows[0].lure; // espelha valores legados
       afkPersist();
@@ -6169,9 +6216,9 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
         hunt.dataset.afkLevelField='hunt';hunt.value=r.hunt||'';hunt.placeholder='Hunt alvo';
         hunt.setAttribute('aria-label','Nome da Hunt '+(index+1));
         const lure=document.createElement('select');lure.className='afk-level-lure';lure.dataset.afkLevelField='lure';
-        for (const mode of ['max','off']) {const option=document.createElement('option');option.value=mode;
-          option.textContent=mode.toUpperCase();lure.append(option);}
-        lure.value=r.lure==='off'?'off':'max';lure.title='Lure exclusivo desta Hunt';
+        for (const mode of BOT_LURE_MODES) {const option=document.createElement('option');option.value=mode;
+          option.textContent=mode.toUpperCase().replace('-', '–');lure.append(option);}
+        lure.value=botNormalizeLure(r.lure);lure.title='Lure exclusivo desta Hunt';
         const remove=document.createElement('button');remove.type='button';remove.className='afk-level-remove';
         remove.dataset.afkRemoveHunt=index;remove.title='Excluir esta Hunt';remove.textContent='×';
         if (index===0) {remove.disabled=true;remove.style.visibility='hidden';}
@@ -6399,7 +6446,7 @@ header button[data-settings-trigger=true].selected{background:#514572;border-col
 
   // ==================== DEBUG EXPORT ====================
   window.__stonegy = {
-    version: "6.2.68",
+    version: "6.2.69",
     afk: () => ({...afk, profiles:afkProfiles}),
     config: BOT_CONFIG,
     saveConfig: botSaveConfig,

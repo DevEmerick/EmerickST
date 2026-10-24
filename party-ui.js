@@ -1,4 +1,4 @@
-// EmerickST Party v6.2.68 — lider/membro local, confirmacao e posicao automaticas.
+// EmerickST Party v6.2.69 — lider/membro local, confirmacao e posicao automaticas.
 // Mundo MAIN. Nao executa hunts, nao altera WebSocket nem faz movimentos.
 (() => {
   if (window.__emerickPartyInit) return;
@@ -8,6 +8,8 @@
     const body = shadow.querySelector('#body');
     if (!tabs || !body) return;
 
+    const PARTY_LURE_MODES = ['off','1-2','2-3','3-4','4-5','5-6','6-7','max'];
+    const partyNormalizeLure = value => PARTY_LURE_MODES.includes(String(value)) ? String(value) : 'max';
     const style = document.createElement('style');
     style.textContent = `
       .tabs:has([data-view="party"]){display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
@@ -69,7 +71,7 @@
         <div class="em-party-line"><strong>Hunt</strong><span class="em-party-status" data-party-hunt>Não definida</span></div>
         <div data-party-leader-options>
           <input type="text" class="em-party-hunt" data-party-hunt-input maxlength="100" placeholder="Nome da hunt do líder" autocomplete="off" spellcheck="false">
-          <div class="em-party-inline"><span class="em-party-compact">Lure</span><select data-party-lure style="width:90px;background:#141a28;color:#e5e6f4;border:1px solid #454b66;border-radius:6px;padding:6px"><option value="max">MAX</option><option value="off">OFF</option></select></div>
+          <div class="em-party-inline"><span class="em-party-compact">Lure</span><select data-party-lure style="width:90px;background:#141a28;color:#e5e6f4;border:1px solid #454b66;border-radius:6px;padding:6px">${PARTY_LURE_MODES.map(mode => `<option value="${mode}">${mode.toUpperCase().replace('-', '–')}</option>`).join('')}</select></div>
         </div>
         <p class="em-party-sub" data-party-hunt-caption>Somente o líder inicia a hunt, protege e vende o loot.</p>
       </div>
@@ -167,7 +169,7 @@
           try { saved = JSON.parse(raw); } catch (_) { saved = {huntName:raw}; }
           bot.config.huntName = String(saved.huntName || '');
           bot.config.lastHuntName = bot.config.huntName;
-          if (['off','max'].includes(saved.lureModo)) bot.config.lureModo = saved.lureModo;
+          if (PARTY_LURE_MODES.includes(saved.lureModo)) bot.config.lureModo = saved.lureModo;
           bot.config.botAtivo = false; // voltar ao Solo sempre pausado
           bot.saveConfig?.();
         }
@@ -494,7 +496,7 @@
     partyHuntInput.value = partyHunt;
     const preferredLure = () => {
       const choice = readMap(LURE_MAP_KEY)[norm(partyHunt)];
-      return choice === 'off' || choice === 'max' ? choice : (window.__stonegy?.config?.lureModo || 'max');
+      return PARTY_LURE_MODES.includes(choice) ? choice : partyNormalizeLure(window.__stonegy?.config?.lureModo);
     };
     partyLure.value = preferredLure();
     // So abrir a edicao manual se a identidade automatica falhar.
@@ -668,7 +670,7 @@
       if (!state.cycleStarted) {
         bot.config.huntName = chosen;
         bot.config.lastHuntName = chosen;
-        bot.config.lureModo = partyLure.value === 'off' ? 'off' : 'max';
+        bot.config.lureModo = partyNormalizeLure(partyLure.value);
         bot.saveConfig?.();
         state.cycleStarted=true;
         state.lastKickAt=Date.now();
@@ -865,7 +867,7 @@
       if (role.value!=='leader' || (state.enabled && closing.active)) {
         partyLure.value=preferredLure();return;
       }
-      const choice=partyLure.value==='off'?'off':'max';
+      const choice=partyNormalizeLure(partyLure.value);
       const values=readMap(LURE_MAP_KEY);
       values[norm(partyHunt)]=choice;
       if (!writeMap(LURE_MAP_KEY,values)) {
